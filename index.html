@@ -40,7 +40,7 @@ h1{font-size:21px;font-weight:700;margin:0;}
 .btn.small{padding:7px 11px;font-size:13px;}
 .btn.full{width:100%;}
 
-input[type=text],select{width:100%;font-family:inherit;font-size:16px;padding:9px 11px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);}
+input[type=text],input[type=date],select{width:100%;font-family:inherit;font-size:16px;padding:9px 11px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);}
 label.f{display:block;font-size:12.5px;color:var(--soft);margin-bottom:11px;}
 label.f>span.l{display:block;margin-bottom:4px;}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -196,7 +196,7 @@ function strOf(n){ return n ? String(n) : ''; }
 
 // ================= 状態 =================
 function defaultState(){
-return { settings:{hourly:0, round:100, hours:0, fee:0, place:0, tax:'none', taxRate:10, margin:30},
+return { settings:{hourly:0, round:100, hours:0, fee:0, place:0, tax:'none', taxRate:10, margin:30, costMax:20},
 materials:[], menus:[], coupons:[], idc:1, trial:{cost:0, minutes:0}, expenses:[], exOff:['mat'] };
 }
 let S = defaultState();
@@ -206,6 +206,21 @@ let dirty = false;
 let saveTimer = null;
 
 // ================= 計算 =================
+function recUsage(m, r){ return r.count>0 && m.qty>0 ? m.qty*(r.bottles||1)/r.count : null; }
+function recAvg(m){
+const rs = (m.records||[]).filter(r=>r.count>0);
+const persons = rs.reduce((a,r)=>a+r.count,0);
+if(!persons || !(m.qty>0)) return null;
+return rs.reduce((a,r)=>a+m.qty*(r.bottles||1),0)/persons;
+}
+function recDays(r){
+if(!r.start || !r.end) return null;
+const d = (Date.parse(r.end)-Date.parse(r.start))/86400000;
+return isFinite(d) && d>=0 ? Math.round(d)+1 : null;
+}
+function matAvg(m){ return m.samples && m.samples.length ? m.samples.reduce((a,b)=>a+b,0)/m.samples.length : null; }
+function matSuggestLabel(m){ return recAvg(m)!=null ? '使い切り記録の平均' : (matAvg(m)!=null ? '実測平均' : '目安'); }
+function matSuggest(m){ const ra = recAvg(m); if(ra!=null) return Math.round(ra*1000)/1000; const a = matAvg(m); if(a!=null) return Math.round(a*1000)/1000; return m.guide>0 ? m.guide : null; }
 function unitCost(m){ return m.qty>0 ? m.price/m.qty : 0; }
 
 function calcMenu(menu, priceOverride){
@@ -283,12 +298,13 @@ hourly: parseNum(st.hourly), round: [10,50,100,500,1000].includes(parseNum(st.ro
 fee: clamp(parseNum(st.fee),0,100), place: clamp(parseNum(st.place),0,100),
 tax: st.tax==='excl' ? 'excl' : 'none',
 taxRate: clamp(parseNum(st.taxRate)||10,0,100),
-margin: clamp(st.margin==null ? 30 : parseNum(st.margin),0,95) };
+margin: clamp(st.margin==null ? 30 : parseNum(st.margin),0,95),
+costMax: st.costMax==null ? 20 : clamp(parseNum(st.costMax)||20,1,100) };
 const ids = new Set();
 const okId = (x)=> Number.isInteger(x) && x>0 && !ids.has(x);
 const materials = [];
 (Array.isArray(d.materials)?d.materials:[]).slice(0,500).forEach(m=>{
-if(m && okId(m.id)){ ids.add(m.id); materials.push({id:m.id, name:str(m.name), price:parseNum(m.price), qty:parseNum(m.qty), unit:str(m.unit,10)}); }
+if(m && okId(m.id)){ ids.add(m.id); materials.push({id:m.id, name:str(m.name), price:parseNum(m.price), qty:parseNum(m.qty), unit:str(m.unit,10), guide:parseNum(m.guide), records:(Array.isArray(m.records)?m.records:[]).slice(0,50).map(r=>({start:/^\d{4}-\d{2}-\d{2}$/.test(r&&r.start)?r.start:'', end:/^\d{4}-\d{2}-\d{2}$/.test(r&&r.end)?r.end:'', count:Math.round(parseNum(r&&r.count)), bottles:parseNum(r&&r.bottles)||1})), samples:(Array.isArray(m.samples)?m.samples:[]).slice(0,50).map(parseNum).filter(x=>x>0)}); }
 });
 const matIds = new Set(materials.map(m=>m.id));
 const menus = [];
@@ -386,6 +402,8 @@ if(fixedTotal()<=0) warns.push('「出費」タブの固定費が未入力のた
 if(s.fee+s.place>=100) warns.push('手数料と場所代の合計が100%以上です。「設定」を確認してください。');
 const noTime = S.menus.filter(m=>m.minutes<=0).length;
 if(noTime) warns.push(`所要時間が未入力のメニューが${noTime}件あります(人件費・固定費が0円になります)。`);
+const hiCost = S.menus.filter(m=>{ const r = calcMenu(m); return r.costRate!=null && r.costRate*100 > s.costMax + 1e-9; });
+if(hiCost.length) warns.push(`材料費率が目安(${fmtN(s.costMax)}%)より高いメニューがあります: ${hiCost.map(m=>m.name||'(名前なし)').join('、')}`);
 const noMat = S.menus.filter(m=>m.lines.length===0 && m.other<=0).length;
 if(noMat) warns.push(`材料が1つも入っていないメニューが${noMat}件あります(材料費が0円になります)。`);
 if(warns.length) h += `<div class="msg warn">${warns.map(w=>'・'+esc(w)).join('<br>')}</div>`;
@@ -443,7 +461,7 @@ ${kv('自分の人件費('+yen(s.hourly)+'×'+fmtN(m.minutes)+'分)', '-'+yen(r.
 ${kv('固定費の配分', '-'+yen(r.fixed).replace(/^-/,''))}
 ${kv('最終利益', yen(r.profit), signCls(r.profit), true)}
 ${kv('利益率(税抜売上比)', r.rate==null?'—':pct(r.rate))}
-${kv('材料費率(材料+その他÷税抜売上)', r.costRate==null?'—':pct(r.costRate))}
+${kv('材料費率(材料+その他÷税抜売上)', r.costRate==null?'—':pct(r.costRate)+costChip(r))}
 ${kv('時間あたり粗利', r.grossPH==null?'—':yen(r.grossPH))}
 ${kv('目標利益率'+fmtN(s.margin)+'%を満たす価格', r.pTargetUp==null?'計算できません':yen(r.pTargetUp)+'以上')}
 ${kv('赤字にならない最低価格', r.pBreakUp==null?'計算できません':yen(r.pBreakUp)+'以上')}
@@ -455,9 +473,14 @@ return h;
 }
 
 // ================= 画面:メニュー =================
+function costChip(r){
+if(r.costRate==null) return '';
+const hi = r.costRate*100 > S.settings.costMax + 1e-9;
+return ` <span class="chip ${hi?'bad':'good'}">${hi?'目安より高め':'目安内'}</span>`;
+}
 function menuLiveHtml(m){
 const r = calcMenu(m), j = judge(r);
-return `材料費 <b>${yen(r.mat+r.other)}</b>(材料費率 ${r.costRate==null?'—':pct(r.costRate)}) ／ 粗利 <b>${yen(r.gross)}</b><br>最終利益 <b class="${signCls(r.profit)}">${yen(r.profit)}</b> <span class="chip ${j.cls}">${j.txt}</span>`;
+return `材料費 <b>${yen(r.mat+r.other)}</b>(材料費率 ${r.costRate==null?'—':pct(r.costRate)}${costChip(r)}) ／ 粗利 <b>${yen(r.gross)}</b><br>最終利益 <b class="${signCls(r.profit)}">${yen(r.profit)}</b> <span class="chip ${j.cls}">${j.txt}</span>`;
 }
 function pickInfoHtml(l){
 const m = S.materials.find(x=>x.id===l.matId);
@@ -488,7 +511,8 @@ S.materials.forEach(mt=>{
 const l = m.lines.find(x=>x.matId===mt.id);
 h += `<div class="line" style="align-items:center;">
 <label style="display:flex;gap:8px;align-items:center;flex:1 1 100%;font-size:14px;"><input type="checkbox" style="width:auto;" data-k="pick" data-id="${m.id}" data-mat="${mt.id}"${l?' checked':''}>${esc(mt.name||'(名前なし)')}<span class="note">${mt.qty>0?'(1'+esc(mt.unit||'')+' '+fmtN(mt.price/mt.qty)+'円)':'(容量未入力)'}</span></label>
-${l ? `<div class="amt">${numInput('pick',m.id,'amount',l.amount,'使用量',`data-mat="${mt.id}"`)}</div><span class="note">${esc(mt.unit||'')}</span><div class="info" data-live="pick:${m.id}:${mt.id}">${pickInfoHtml(l)}</div>` : ''}
+${l ? `<div class="amt">${numInput('pick',m.id,'amount',l.amount,'使用量',`data-mat="${mt.id}"`)}</div><span class="note">${esc(mt.unit||'')}</span><div class="info" data-live="pick:${m.id}:${mt.id}">${pickInfoHtml(l)}</div>
+${matSuggest(mt)!=null ? `<div style="flex:1 1 100%;font-size:12px;color:var(--soft);">${matSuggestLabel(mt)} ${fmtN(matSuggest(mt))}${esc(mt.unit||'')} <button class="btn ghost small" style="padding:2px 8px;" data-act="useGuide" data-id="${m.id}" data-mat="${mt.id}">この量を入れる</button></div>` : ''}` : ''}
 </div>`;
 });
 h += `<div class="grid2" style="margin-top:12px;">
@@ -507,14 +531,28 @@ return h;
 }
 
 // ================= 画面:材料 =================
+function recRowHtml(m, r){
+const u = recUsage(m, r), d = recDays(r);
+if(r.start && r.end && d==null) return '<span class="neg">使い切った日が、開けた日より前になっています</span>';
+if(!(m.qty>0)) return '容量を入れてください';
+if(u==null) return '人数を入れると、1人あたりの使用量が出ます';
+const c = u*unitCost(m);
+return `${d!=null?`期間 ${d}日 ／ `:''}1人あたり <b>${fmtN(Math.round(u*1000)/1000)}${esc(m.unit||'')}</b>(約${yen(c)})${d!=null?` ／ 1日 ${fmtN(Math.round(m.qty*(r.bottles||1)/d*100)/100)}${esc(m.unit||'')}`:''}`;
+}
+function recSumHtml(m){
+const a = recAvg(m), n = (m.records||[]).filter(r=>r.count>0).length;
+if(a==null) return '記録を入れると、ここに平均が出ます。メニューで材料にチェックを入れると、この量が自動で入ります。';
+return `平均 <b>1人あたり ${fmtN(Math.round(a*1000)/1000)}${esc(m.unit||'')}</b>(約${yen(a*unitCost(m))}) ／ ${n}回分の記録${n<2?'。2回以上あると安定します':''}`;
+}
 function matLiveHtml(m){
 return m.qty>0 ? `1${esc(m.unit||'')}あたり <b>${fmtN(m.price/m.qty)}円</b>` : '容量を入れると、1あたりの金額が出ます';
 }
 function renderMat(){
-const common = [['ベースジェル','g'],['カラージェル','g'],['トップジェル','g'],['プレップ','ml'],['クリーナー','ml'],['ジェルリムーバー','ml'],['ファイル','枚'],['バッファー','枚'],['コットン・ワイプ','枚'],['キューティクルオイル','ml'],['ネイルパーツ','個'],['耳つぼシール','個'],['巻き爪補正材','枚']];
+const common = [['ベースジェル','g',0.25],['カラージェル','g',0.5],['トップジェル','g',0.4],['プレップ','ml',0.8],['クリーナー','ml',1],['ジェルリムーバー','ml',10],['ファイル','枚'],['バッファー','枚'],['コットン・ワイプ','枚'],['キューティクルオイル','ml'],['ネイルパーツ','個'],['耳つぼシール','個'],['巻き爪補正材','枚']];
 let h = `<div class="card"><p class="hint" style="margin:0 0 10px;">ジェル・ファイル・コットンなど、施術で使うものの<b>購入した金額</b>と<b>容量</b>を入れます。例：ジェル 2,200円 / 25 g。</p>
 <h3 style="margin-top:0;">よく使う材料をワンタップで追加</h3>
-<div class="rowActions" style="margin-top:0;">${common.map(([n,u])=>`<button class="btn secondary small" data-act="addMat" data-n="${esc(n)}" data-u="${esc(u)}">＋ ${esc(n)}</button>`).join('')}</div></div>`;
+<div class="rowActions" style="margin-top:0;">${common.map(([n,u,g])=>`<button class="btn secondary small" data-act="addMat" data-n="${esc(n)}" data-u="${esc(u)}" data-g="${g||''}">＋ ${esc(n)}</button>`).join('')}</div>
+<p class="hint">ジェル・プレップ・クリーナー・リムーバーには、1回あたりの使用量の目安(ジェルメーカーの資料の例)が入ります。使う量はサロンやデザインで変わるので、後で実測した平均に置き換えてください。</p></div>`;
 if(!S.materials.length) h += `<div class="empty">材料がまだありません。</div>`;
 S.materials.forEach(m=>{
 h += `<div class="card" data-card="mat:${m.id}">
@@ -525,7 +563,25 @@ h += `<div class="card" data-card="mat:${m.id}">
 </div>
 <label class="f"><span class="l">単位</span>${textInput('mat',m.id,'unit',m.unit,'例：g ・ ml ・ 枚 ・ 個',10)}</label>
 <div class="live" data-live="mat:${m.id}">${matLiveHtml(m)}</div>
-<button class="btn dangerOutline small" data-act="delMat" data-id="${m.id}">この材料を削除</button>
+<label class="f"><span class="l">1回あたりの使用量の目安(任意)</span><div class="sfx">${numInput('mat',m.id,'guide',m.guide,'例：0.25')}<span>${esc(m.unit||'')}</span></div></label>
+<h3>使い切り記録(いちばん簡単)</h3>
+<p class="hint" style="margin:0 0 8px;">買った日(開けた日)と使い切った日、その間にその材料を使ったお客様の人数を記録するだけです。1人あたりの使用量が自動で出ます。ジェルを使わないお客様(ケアのみなど)は、人数に入れないでください。</p>
+${(m.records||[]).map((r,i)=>`<div class="line">
+<div style="flex:1 1 45%;"><div class="note">開けた日・購入日</div><input type="date" data-k="rec" data-id="${m.id}" data-i="${i}" data-f="start" value="${esc(r.start)}"></div>
+<div style="flex:1 1 45%;"><div class="note">使い切った日</div><input type="date" data-k="rec" data-id="${m.id}" data-i="${i}" data-f="end" value="${esc(r.end)}"></div>
+<div style="flex:1 1 40%;"><div class="note">お客様の人数</div>${numInput('rec',m.id,'count',r.count,'例：30',`data-i="${i}"`)}</div>
+<div style="flex:1 1 30%;"><div class="note">使った本数</div>${numInput('rec',m.id,'bottles',r.bottles,'1',`data-i="${i}"`)}</div>
+<button class="btn ghost small" data-act="delRec" data-id="${m.id}" data-i="${i}" aria-label="この記録を削除">✕</button>
+<div class="info" style="flex:1 1 100%;" data-live="rec:${m.id}:${i}">${recRowHtml(m,r)}</div>
+</div>`).join('')}
+<button class="btn secondary small" data-act="addRec" data-id="${m.id}">＋ 使い切り記録を追加</button>
+<div class="live" style="margin-top:10px;" data-live="recsum:${m.id}">${recSumHtml(m)}</div>
+<details style="margin-top:10px;"${m.samples.length?' open':''}><summary style="cursor:pointer;font-size:13px;color:var(--soft);">(任意)1回ごとの重さを量って記録する</summary>
+<p class="hint" style="margin:6px 0 8px;">余裕のあるときだけで大丈夫です。1回の施術の前後で容器ごと重さを量り、減った量を記録します(0.01g単位のはかりが目安)。</p>
+<div class="rowActions" style="margin:0 0 8px;">${m.samples.map((x,i)=>`<span class="chip good">${fmtN(x)}${esc(m.unit||'')} <button class="btn ghost small" style="padding:0 6px;margin-left:4px;" data-act="delSample" data-id="${m.id}" data-i="${i}" aria-label="この記録を削除">✕</button></span>`).join('')}</div>
+<div class="sfx"><input type="text" inputmode="decimal" autocomplete="off" id="smp_${m.id}" data-num="1" placeholder="使った量(例：0.3)"><button class="btn secondary small" style="white-space:nowrap;" data-act="addSample" data-id="${m.id}">記録する</button></div>
+${m.samples.length ? `<p class="hint">実測平均 <b>${fmtN(Math.round(matAvg(m)*1000)/1000)}${esc(m.unit||'')}</b>(${m.samples.length}回分)${m.samples.length<5?'。5回以上あると安定します':''}</p>` : ''}</details>
+<div style="margin-top:12px;"><button class="btn dangerOutline small" data-act="delMat" data-id="${m.id}">この材料を削除</button></div>
 </div>`;
 });
 h += `<button class="btn full" data-act="addMat">＋ 材料を追加</button>`;
@@ -773,6 +829,8 @@ return `<div class="card"><h2>基本の設定</h2>
 <p class="hint">提携先などに売上の何%を支払うかです。ない場合は0。計算では、税込の売上に対する割合として扱います。</p></label>
 <label class="f"><span class="l">目標利益率</span>${sf('margin',s.margin,'例：30','%')}
 <p class="hint">自分の人件費と固定費を引いたあとに、税抜売上の何%を残したいかです。初期値の30%は仮の数字です。ご自身の目標に変えてください。</p></label>
+<label class="f"><span class="l">材料費率の上限の目安</span>${sf('costMax',s.costMax,'例：20','%')}
+<p class="hint">材料費(材料+その他の変動費)が、税抜売上の何%までなら良いとするかです。調べた範囲の目安は、ネイル10〜20%、エステ10〜15%前後です(資料によって幅があります)。これを超えるメニューに、「高め」の印が付きます。</p></label>
 <h3>消費税の扱い</h3>
 <div class="radioRow">
 <label><input type="radio" name="tax" value="none" data-k="set" data-f="tax"${s.tax==='none'?' checked':''}>税込のまま計算</label>
@@ -820,6 +878,8 @@ else if(p[0]==='mat'){ const m=S.materials.find(x=>x.id===+p[1]); if(m) el.inner
 else if(p[0]==='line'){ const m=S.menus.find(x=>x.id===+p[1]); const l=m&&m.lines[+p[2]]; if(l) el.innerHTML = lineInfoHtml(l); }
 else if(p[0]==='coupon'){ const c=S.coupons.find(x=>x.id===+p[1]); if(c) el.innerHTML = couponLiveHtml(c); }
 else if(p[0]==='price'){ el.innerHTML = priceBodyHtml(); }
+else if(p[0]==='rec'){ const m=S.materials.find(x=>x.id===+p[1]); const r=m&&m.records[+p[2]]; if(r) el.innerHTML = recRowHtml(m,r); }
+else if(p[0]==='recsum'){ const m=S.materials.find(x=>x.id===+p[1]); if(m) el.innerHTML = recSumHtml(m); }
 else if(p[0]==='pick'){ const m=S.menus.find(x=>x.id===+p[1]); const l=m&&m.lines.find(x=>x.matId===+p[2]); if(l) el.innerHTML = pickInfoHtml(l); }
 else if(p[0]==='exsum'){ el.innerHTML = exSummaryHtml(); }
 else if(p[0]==='exg'){ el.innerHTML = exGroupHtml(p[1]); }
@@ -843,15 +903,21 @@ const row = $('#taxRateRow'); if(row) row.classList.toggle('hidden', s.tax!=='ex
 } else if(f==='hours'){ s.hours = Math.min(v,744); }
 else if(f==='fee' || f==='place'){ s[f] = Math.min(v,100); }
 else if(f==='margin'){ s.margin = Math.min(v,95); }
+else if(f==='costMax'){ s.costMax = v>0 ? Math.min(v,100) : 20; }
 else if(f==='round'){ s.round = [10,50,100,500,1000].includes(+el.value) ? +el.value : 100; }
 else if(f==='taxRate'){ s.taxRate = Math.min(v,100); }
 else if(f in s){ s[f] = v; }
+} else if(k==='rec'){
+const m = S.materials.find(x=>x.id===id); const r = m && m.records[+el.dataset.i]; if(!r) return;
+if(f==='start'||f==='end') r[f] = /^\d{4}-\d{2}-\d{2}$/.test(el.value) ? el.value : '';
+else if(f==='count') r.count = Math.round(v);
+else r.bottles = v || 1;
 } else if(k==='pick'){
 const m = S.menus.find(x=>x.id===id); if(!m) return;
 const matId = +el.dataset.mat;
 if(el.type==='checkbox'){
 const has = m.lines.some(x=>x.matId===matId);
-if(el.checked && !has) m.lines.push({matId, amount:0});
+if(el.checked && !has){ const mt = S.materials.find(x=>x.id===matId); const sg = mt ? matSuggest(mt) : null; m.lines.push({matId, amount: sg==null ? 0 : sg}); }
 else if(!el.checked && has) m.lines = m.lines.filter(x=>x.matId!==matId);
 touch(); rerender(); return;
 }
@@ -904,7 +970,7 @@ el.value = n ? String(n) : '';
 // ================= 操作 =================
 function sampleData(){
 const d = defaultState();
-d.settings = {hourly:2000, round:100, hours:80, fee:2.5, place:0, tax:'none', taxRate:10, margin:30};
+d.settings = {hourly:2000, round:100, hours:80, fee:2.5, place:0, tax:'none', taxRate:10, margin:30, costMax:20};
 d.materials = [
 {id:1,name:'ベースジェル',price:2200,qty:25,unit:'g'},
 {id:2,name:'カラージェル',price:1650,qty:10,unit:'g'},
@@ -913,6 +979,7 @@ d.materials = [
 {id:5,name:'コットン・ワイプ',price:400,qty:200,unit:'枚'},
 {id:6,name:'キューティクルオイル',price:1100,qty:10,unit:'ml'},
 {id:7,name:'アートパーツ',price:1000,qty:10,unit:'回分'}];
+d.materials.forEach(m=>{ m.guide = 0; m.samples = []; m.records = []; });
 d.menus = [
 {id:8,name:'ワンカラー',price:6000,market:5500,minutes:60,other:0,count:20,lines:[{matId:1,amount:0.3},{matId:2,amount:0.4},{matId:3,amount:0.3},{matId:4,amount:2},{matId:5,amount:10},{matId:6,amount:0.1}]},
 {id:9,name:'ネイルアート(フルオーダー)',price:9000,market:9500,minutes:120,other:300,count:5,lines:[{matId:1,amount:0.3},{matId:2,amount:0.8},{matId:3,amount:0.4},{matId:4,amount:2},{matId:5,amount:15},{matId:6,amount:0.1},{matId:7,amount:1}]},
@@ -985,7 +1052,29 @@ const e = S.expenses.find(x=>x.id===id); if(!e) return;
 S.expenses = S.expenses.filter(x=>x.id!==id); touch(); rerender();
 }
 else if(act==='goTab'){ setTab(b.dataset.t); }
-else if(act==='addMat'){ S.materials.push({id:nextId(),name:b.dataset.n||'',price:0,qty:0,unit:b.dataset.u||''}); touch(); rerender(); }
+else if(act==='addRec'){
+const m = S.materials.find(x=>x.id===id); if(!m||m.records.length>=50) return;
+m.records.push({start:'', end:todayStr(), count:0, bottles:1}); touch(); rerender();
+}
+else if(act==='delRec'){
+const m = S.materials.find(x=>x.id===id); if(!m) return;
+m.records.splice(+b.dataset.i,1); touch(); rerender();
+}
+else if(act==='addSample'){
+const m = S.materials.find(x=>x.id===id); const inp = $('#smp_'+id); if(!m||!inp) return;
+const v = parseNum(inp.value);
+if(v>0 && m.samples.length<50){ m.samples.push(v); touch(); rerender(); } else { inp.focus(); }
+}
+else if(act==='delSample'){
+const m = S.materials.find(x=>x.id===id); if(!m) return;
+m.samples.splice(+b.dataset.i,1); touch(); rerender();
+}
+else if(act==='useGuide'){
+const m = S.menus.find(x=>x.id===id); const mt = S.materials.find(x=>x.id===+b.dataset.mat); const l = m&&m.lines.find(x=>x.matId===+b.dataset.mat);
+if(!l||!mt) return;
+const v = matSuggest(mt); if(v!=null){ l.amount = v; touch(); rerender(); }
+}
+else if(act==='addMat'){ S.materials.push({id:nextId(),name:b.dataset.n||'',price:0,qty:0,unit:b.dataset.u||'',guide:parseNum(b.dataset.g),records:[],samples:[]}); touch(); rerender(); }
 else if(act==='delMat'){
 const m = S.materials.find(x=>x.id===id); if(!m) return;
 const used = S.menus.filter(x=>x.lines.some(l=>l.matId===id)).length;
