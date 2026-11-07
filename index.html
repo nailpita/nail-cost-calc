@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ネイル原価計算</title>
+<style>
+:root{
+--bg:#F6F4F1; --surface:#FFFFFF; --ink:#2B2320; --soft:#6B6058; --line:#E6E0D8;
+--accent:#B85C7A; --accent-ink:#7C3A50; --accent-soft:#F3E3E8;
+--ok:#4F7A4B; --ok-soft:#EAF1E7; --warn:#B4632F; --warn-soft:#FBEAE0; --bad:#B23A3A; --bad-soft:#F8E4E4;
+}
+*{box-sizing:border-box;}
+html{-webkit-text-size-adjust:100%;}
+body{margin:0;font-family:'Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans JP','Yu Gothic',Meiryo,sans-serif;background:var(--bg);color:var(--ink);line-height:1.65;padding:16px 14px 70px;}
+.wrap{max-width:720px;margin:0 auto;}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-bottom:6px;}
+.eyebrow{font-size:12px;font-weight:700;color:var(--accent-ink);margin:0 0 2px;}
+h1{font-size:21px;font-weight:700;margin:0;}
+#status{font-size:11.5px;color:var(--soft);text-align:right;min-height:18px;margin:0 0 4px;}
+#status.bad{color:var(--warn);}
+
+.tabs{position:sticky;top:0;z-index:5;background:var(--bg);display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:8px 0 10px;}
+.tabs button{border:1px solid var(--line);background:var(--surface);color:var(--soft);border-radius:10px;padding:9px 2px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;}
+.tabs button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;}
+.card h2{font-size:15px;margin:0 0 10px;}
+.card h3{font-size:13.5px;margin:14px 0 6px;color:var(--accent-ink);}
+.hint{font-size:12px;color:var(--soft);margin:4px 0 0;}
+.note{font-size:12px;color:var(--soft);}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px 16px;background:var(--accent);color:#fff;border:none;border-radius:10px;font-size:14.5px;font-weight:600;font-family:inherit;cursor:pointer;}
+.btn:active{background:var(--accent-ink);}
+.btn.secondary{background:var(--surface);color:var(--accent-ink);border:1.5px solid var(--accent);}
+.btn.ghost{background:none;color:var(--soft);border:1px solid var(--line);}
+.btn.danger{background:var(--bad);}
+.btn.dangerOutline{background:var(--surface);color:var(--bad);border:1.5px solid var(--bad);}
+.btn.small{padding:7px 11px;font-size:13px;}
+.btn.full{width:100%;}
+
+input[type=text],select{width:100%;font-family:inherit;font-size:16px;padding:9px 11px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);}
+label.f{display:block;font-size:12.5px;color:var(--soft);margin-bottom:11px;}
+label.f>span.l{display:block;margin-bottom:4px;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.sfx{display:flex;align-items:center;gap:6px;}
+.sfx span{font-size:13px;color:var(--soft);white-space:nowrap;}
+
+.msg{border-radius:10px;padding:10px 13px;font-size:13px;margin-bottom:12px;}
+.msg.warn{background:var(--warn-soft);color:var(--warn);}
+.msg.ok{background:var(--ok-soft);color:var(--ok);}
+.msg.bad{background:var(--bad-soft);color:var(--bad);}
+.hidden{display:none !important;}
+
+.chip{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap;}
+.chip.good{background:var(--ok-soft);color:var(--ok);}
+.chip.mid{background:var(--warn-soft);color:var(--warn);}
+.chip.bad{background:var(--bad-soft);color:var(--bad);}
+
+.tblwrap{overflow-x:auto;}
+table.cmp{width:100%;border-collapse:collapse;font-size:13px;}
+table.cmp th{font-size:11.5px;color:var(--soft);font-weight:600;text-align:right;padding:6px 6px;border-bottom:1px solid var(--line);white-space:nowrap;}
+table.cmp th:first-child,table.cmp td:first-child{text-align:left;}
+table.cmp td:first-child{white-space:normal;min-width:110px;}
+table.cmp td{white-space:nowrap;padding:8px 6px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top;}
+table.cmp tr:last-child td{border-bottom:none;}
+table.cmp .sub{display:block;font-size:11.5px;color:var(--soft);}
+
+.kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:13.5px;border-bottom:1px dashed var(--line);}
+.kv:last-child{border-bottom:none;}
+.kv .k{color:var(--soft);}
+.kv.strong{font-weight:700;}
+.kv.strong .k{color:var(--ink);}
+.neg{color:var(--bad);}
+.pos{color:var(--ok);}
+details.menuDetail{border-top:1px solid var(--line);padding:10px 0 2px;}
+details.menuDetail:first-of-type{border-top:none;}
+details.menuDetail>summary{cursor:pointer;font-weight:700;font-size:14.5px;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:8px;}
+details.menuDetail>summary::-webkit-details-marker{display:none;}
+details.menuDetail>summary::after{content:'▾';color:var(--soft);}
+details.menuDetail[open]>summary::after{content:'▴';}
+
+.line{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px;padding:8px;background:var(--bg);border-radius:10px;}
+.line select{flex:1 1 100%;}
+.line .amt{flex:0 0 96px;}
+.line .info{flex:1 1 80px;font-size:12px;color:var(--soft);}
+.live{background:var(--accent-soft);border-radius:10px;padding:10px 12px;font-size:13px;margin:8px 0 12px;}
+.rowActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;}
+.empty{text-align:center;color:var(--soft);font-size:13.5px;padding:22px 10px;}
+.steps{margin:6px 0 12px;padding-left:20px;font-size:13.5px;}
+.steps li{margin-bottom:4px;}
+footer{font-size:11.5px;color:var(--soft);margin-top:18px;text-align:center;}
+.radioRow{display:flex;gap:14px;flex-wrap:wrap;font-size:14px;margin-bottom:6px;}
+.radioRow label{display:flex;align-items:center;gap:6px;}
+.radioRow input{width:auto;}
+
+.modalBack{position:fixed;inset:0;background:rgba(43,35,32,.55);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;}
+.modalBox{background:var(--surface);border-radius:16px;padding:20px;max-width:420px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.25);}
+.modalBox h2{font-size:17px;margin:0 0 8px;}
+.modalBox p{font-size:13.5px;margin:0 0 14px;white-space:pre-line;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div>
+<p class="eyebrow">ネイルサロン向け</p>
+<h1>ネイル原価計算</h1>
+</div>
+</header>
+<p id="status"></p>
+
+<nav class="tabs" id="tabs">
+<button data-tab="result">結果</button>
+<button data-tab="menu">メニュー</button>
+<button data-tab="mat">材料</button>
+<button data-tab="coupon">回数券</button>
+<button data-tab="set">設定</button>
+</nav>
+
+<div id="msgArea"></div>
+<main id="view"></main>
+
+<footer>
+計算結果は、入力した数字にもとづく目安です。税務・会計の判断は、税理士または税務署にご確認ください。<br>
+入力したデータは、この端末のブラウザ内にのみ保存され、外部には送信されません。
+</footer>
+</div>
+
+<div class="modalBack hidden" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+<div class="modalBox">
+<h2 id="modalTitle"></h2>
+<p id="modalBody"></p>
+<div class="grid2">
+<button class="btn secondary" id="modalCancel">キャンセル</button>
+<button class="btn danger" id="modalOk">OK</button>
+</div>
+</div>
+</div>
+
+<script>
+'use strict';
+// ================= 基本 =================
+const KEY = 'nailCostCalc_v1';
+const $ = (s, r)=> (r||document).querySelector(s);
+const $$ = (s, r)=> Array.from((r||document).querySelectorAll(s));
+
+function esc(s){
+return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+// 全角数字・カンマ・単位つきでも読み取る。数でないものは0、負の数は0、極端に大きい数は上限で止める
+function parseNum(v){
+if(typeof v==='number') return isFinite(v) ? Math.min(Math.max(v,0),1e9) : 0;
+let s = String(v==null?'':v)
+.replace(/[０-９]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0))
+.replace(/[．。]/g,'.').replace(/[,，、\s円%％]/g,'');
+const n = parseFloat(s);
+return isFinite(n) ? Math.min(Math.max(n,0),1e9) : 0;
+}
+function fmtN(n){ return String(Number((+n).toFixed(2))); }
+function yen(n){
+const r = Math.round(n);
+return (r<0?'-':'') + Math.abs(r).toLocaleString('ja-JP') + '円';
+}
+function pct(x){ return (x*100).toFixed(1).replace(/\.0$/,'') + '%'; }
+function ceilTo(n, unit){ return Math.ceil(n/unit - 1e-9) * unit; }
+function strOf(n){ return n ? String(n) : ''; }
+
+// ================= 状態 =================
+function defaultState(){
+return { settings:{hourly:0, fixed:0, hours:0, fee:0, place:0, tax:'none', taxRate:10, margin:30},
+materials:[], menus:[], coupons:[], idc:1 };
+}
+let S = defaultState();
+let tab = 'result';
+let storageOK = true;
+let dirty = false;
+let saveTimer = null;
+
+// ================= 計算 =================
+function unitCost(m){ return m.qty>0 ? m.price/m.qty : 0; }
+
+function calcMenu(menu, priceOverride){
+const s = S.settings;
+const price = priceOverride!=null ? priceOverride : menu.price;
+const matMap = new Map(S.materials.map(x=>[x.id,x]));
+let matRaw = 0;
+menu.lines.forEach(l=>{ const m = matMap.get(l.matId); if(m) matRaw += l.amount * unitCost(m); });
+const k = s.tax==='excl' ? 1 + s.taxRate/100 : 1;
+const f1 = s.fee/100, f2 = s.place/100, f = f1 + f2;
+const net = Math.round(price / k);
+const mat = Math.round(matRaw);
+const other = Math.round(menu.other);
+const feeCard = Math.round(price * f1);
+const feePlace = Math.round(price * f2);
+const hours = menu.minutes / 60;
+const fixedPH = s.hours>0 ? s.fixed / s.hours : 0;
+const labor = Math.round(hours * s.hourly);
+const fixed = Math.round(hours * fixedPH);
+const gross = net - mat - other - feeCard - feePlace;
+const profit = gross - labor - fixed;
+const C = mat + other + labor + fixed;
+const m = Math.min(Math.max(s.margin,0),95)/100;
+const d0 = 1/k - f, dt = (1-m)/k - f;
+const pBreak = d0>0 ? C/d0 : null;
+const pTarget = dt>0 ? C/dt : null;
+return { price, net, mat, other, feeCard, feePlace, hours, labor, fixed, gross, profit,
+rate: net>0 ? profit/net : null,
+costRate: net>0 ? (mat+other)/net : null,
+grossPH: hours>0 ? gross/hours : null,
+pBreak, pTarget,
+pBreakUp: pBreak==null ? null : ceilTo(pBreak,100),
+pTargetUp: pTarget==null ? null : ceilTo(pTarget,100) };
+}
+function judge(r){
+if(!(r.price>0)) return {cls:'mid', txt:'価格未入力'};
+if(r.profit<0) return {cls:'bad', txt:'赤字'};
+if(r.net>0 && (r.profit/r.net)*100 >= S.settings.margin - 1e-9) return {cls:'good', txt:'目標達成'};
+return {cls:'mid', txt:'目標未満'};
+}
+function requiredPH(){
+const s = S.settings;
+return s.hourly + (s.hours>0 ? s.fixed/s.hours : 0);
+}
+
+// ================= 保存 =================
+function setStatus(t, bad){ const el=$('#status'); el.textContent=t; el.classList.toggle('bad', !!bad); }
+function timeLabel(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return `${p(d.getHours())}:${p(d.getMinutes())}`; }
+function todayStr(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; }
+function saveNow(){
+clearTimeout(saveTimer); saveTimer = null;
+try{
+localStorage.setItem(KEY, JSON.stringify(S));
+storageOK = true; dirty = false;
+setStatus(`✓ 自動保存しました(${timeLabel()})`);
+}catch(err){
+storageOK = false;
+setStatus('⚠ 自動保存できません。「設定」→「バックアップを保存」で保存してください', true);
+}
+}
+function touch(){ dirty = true; clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 300); }
+window.addEventListener('pagehide', ()=>{ if(saveTimer) saveNow(); });
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden' && saveTimer) saveNow(); });
+window.addEventListener('beforeunload', (e)=>{ if(dirty && !storageOK){ e.preventDefault(); e.returnValue=''; } });
+
+// 読み込んだデータの検査・整形
+function sanitize(d){
+if(!d || typeof d!=='object' || Array.isArray(d)) throw new Error('invalid');
+if(!(d.settings && typeof d.settings==='object') || !Array.isArray(d.materials) || !Array.isArray(d.menus)) throw new Error('invalid');
+const str = (x,n)=> typeof x==='string' ? x.slice(0,n||60) : '';
+const clamp = (x,a,b)=> Math.min(Math.max(x,a),b);
+const st = d.settings && typeof d.settings==='object' ? d.settings : {};
+const settings = {
+hourly: parseNum(st.hourly), fixed: parseNum(st.fixed), hours: clamp(parseNum(st.hours),0,744),
+fee: clamp(parseNum(st.fee),0,100), place: clamp(parseNum(st.place),0,100),
+tax: st.tax==='excl' ? 'excl' : 'none',
+taxRate: clamp(parseNum(st.taxRate)||10,0,100),
+margin: clamp(st.margin==null ? 30 : parseNum(st.margin),0,95) };
+const ids = new Set();
+const okId = (x)=> Number.isInteger(x) && x>0 && !ids.has(x);
+const materials = [];
+(Array.isArray(d.materials)?d.materials:[]).slice(0,500).forEach(m=>{
+if(m && okId(m.id)){ ids.add(m.id); materials.push({id:m.id, name:str(m.name), price:parseNum(m.price), qty:parseNum(m.qty), unit:str(m.unit,10)}); }
+});
+const matIds = new Set(materials.map(m=>m.id));
+const menus = [];
+(Array.isArray(d.menus)?d.menus:[]).slice(0,500).forEach(m=>{
+if(m && okId(m.id)){
+ids.add(m.id);
+const lines = [];
+(Array.isArray(m.lines)?m.lines:[]).slice(0,100).forEach(l=>{
+if(l && (l.matId===0 || matIds.has(l.matId))) lines.push({matId:l.matId||0, amount:parseNum(l.amount)});
+});
+menus.push({id:m.id, name:str(m.name), price:parseNum(m.price), minutes:clamp(parseNum(m.minutes),0,1440), other:parseNum(m.other), count:parseNum(m.count), lines});
+}
+});
+const menuIds = new Set(menus.map(m=>m.id));
+const coupons = [];
+(Array.isArray(d.coupons)?d.coupons:[]).slice(0,500).forEach(c=>{
+if(c && okId(c.id) && menuIds.has(c.menuId)){
+ids.add(c.id);
+coupons.push({id:c.id, name:str(c.name), menuId:c.menuId, sessions:clamp(Math.round(parseNum(c.sessions))||1,1,100), price:parseNum(c.price)});
+}
+});
+let maxId = 0; ids.forEach(i=>{ if(i>maxId) maxId=i; });
+const idc = Math.max(maxId+1, Number.isInteger(d.idc) ? d.idc : 1);
+return {settings, materials, menus, coupons, idc};
+}
+function hasData(){ return S.materials.length || S.menus.length || S.coupons.length; }
+
+// ================= 確認ダイアログ =================
+let modalOk = null;
+function confirmBox(title, body, okLabel, onOk){
+$('#modalTitle').textContent = title; $('#modalBody').textContent = body;
+$('#modalOk').textContent = okLabel; modalOk = onOk;
+$('#modal').classList.remove('hidden');
+}
+function closeModal(){ $('#modal').classList.add('hidden'); modalOk = null; }
+$('#modalCancel').addEventListener('click', closeModal);
+$('#modalOk').addEventListener('click', ()=>{ const fn = modalOk; closeModal(); if(fn) fn(); });
+
+function msg(kind, text){ $('#msgArea').innerHTML = text ? `<div class="msg ${kind}">${esc(text)}</div>` : ''; }
+
+// ================= 部品 =================
+function numInput(kind, id, field, val, ph, extra){
+return `<input type="text" inputmode="decimal" autocomplete="off" data-k="${kind}" data-id="${id}" data-f="${field}" data-num="1" value="${esc(strOf(val))}" placeholder="${esc(ph||'')}" ${extra||''}>`;
+}
+function textInput(kind, id, field, val, ph, maxlen){
+return `<input type="text" autocomplete="off" data-k="${kind}" data-id="${id}" data-f="${field}" value="${esc(val)}" placeholder="${esc(ph||'')}" maxlength="${maxlen||60}">`;
+}
+function kv(label, value, cls, strong){
+return `<div class="kv${strong?' strong':''}"><span class="k">${label}</span><span class="${cls||''}">${value}</span></div>`;
+}
+function signCls(n){ return n<0 ? 'neg' : (n>0 ? 'pos' : ''); }
+
+// ================= 画面:結果 =================
+function renderResult(){
+const s = S.settings;
+if(!S.menus.length){
+return `<div class="card">
+<h2>はじめに</h2>
+<p style="font-size:13.5px;margin:0 0 8px;">メニューごとの「材料費・手数料・自分の時間」を合計して、いくら残るか(利益)と、いくらにすれば足りるかを計算します。</p>
+<ol class="steps">
+<li>「設定」で、自分の目標時給・月の固定費・手数料などを入れる</li>
+<li>「材料」で、ジェルなどの仕入れ値と容量を入れる</li>
+<li>「メニュー」で、価格・所要時間・使う材料の量を入れる</li>
+<li>この「結果」の画面で、メニューを比べる</li>
+</ol>
+<button class="btn secondary full" data-act="sample">サンプルを入れて試す</button>
+<p class="hint">※サンプルの数字は説明用です。実際の仕入れ値・使用量・時間に書き換えてください。</p>
+</div>`;
+}
+let h = '';
+const warns = [];
+if(s.hourly<=0) warns.push('「設定」の自分の目標時給が未入力のため、自分の人件費は0円で計算されています。');
+if(s.fixed>0 && s.hours<=0) warns.push('月の施術可能時間が未入力のため、固定費を配分できていません。');
+if(s.fixed<=0) warns.push('月の固定費が未入力のため、固定費は0円で計算されています。');
+if(s.fee+s.place>=100) warns.push('手数料と場所代の合計が100%以上です。「設定」を確認してください。');
+const noTime = S.menus.filter(m=>m.minutes<=0).length;
+if(noTime) warns.push(`所要時間が未入力のメニューが${noTime}件あります(人件費・固定費が0円になります)。`);
+const noMat = S.menus.filter(m=>m.lines.length===0 && m.other<=0).length;
+if(noMat) warns.push(`材料が1つも入っていないメニューが${noMat}件あります(材料費が0円になります)。`);
+if(warns.length) h += `<div class="msg warn">${warns.map(w=>'・'+esc(w)).join('<br>')}</div>`;
+
+const rows = S.menus.map(m=>({m, r:calcMenu(m)}));
+rows.sort((a,b)=>{
+const x=a.r.grossPH, y=b.r.grossPH;
+if(x==null && y==null) return 0; if(x==null) return 1; if(y==null) return -1; return y-x;
+});
+h += `<div class="card"><h2>メニューの比較</h2>
+<div class="tblwrap"><table class="cmp"><thead><tr><th>メニュー</th><th>時間あたり粗利</th><th>利益</th><th>判定</th></tr></thead><tbody>`;
+rows.forEach(({m,r})=>{
+const j = judge(r);
+h += `<tr><td>${esc(m.name||'(名前なし)')}<span class="sub">${yen(m.price)}・${fmtN(m.minutes)}分</span></td>
+<td>${r.grossPH==null?'—':yen(r.grossPH)}</td>
+<td class="${signCls(r.profit)}">${yen(r.profit)}<span class="sub">${r.rate==null?'—':pct(r.rate)}</span></td>
+<td><span class="chip ${j.cls}">${j.txt}</span></td></tr>`;
+});
+h += `</tbody></table></div>
+<p class="hint">時間あたり粗利 = (売上 − 材料費 − 手数料)÷ 所要時間。<b>自分の目標時給 + 固定費の配分 =「必要ライン」${yen(requiredPH())}/時間</b> を超えていれば黒字です。利益率は税抜売上に対する割合です。「目標達成」は利益率${fmtN(s.margin)}%以上です。</p></div>`;
+
+// 月間シミュレーション
+const withCount = S.menus.filter(m=>m.count>0);
+if(withCount.length){
+let sales=0, gross=0, hours=0;
+withCount.forEach(m=>{ const r=calcMenu(m); sales += m.price*m.count; gross += r.gross*m.count; hours += r.hours*m.count; });
+const take = gross - s.fixed;
+const real = hours>0 ? take/hours : null;
+h += `<div class="card"><h2>月間シミュレーション</h2>
+<p class="hint" style="margin:0 0 8px;">各メニューの「月の件数」から計算しています。</p>
+${kv('月の売上(税込)', yen(sales))}
+${kv('粗利の合計', yen(gross))}
+${kv('月の固定費', '-'+yen(s.fixed).replace(/^-/,''))}
+${kv('自分の取り分(月)', yen(take), signCls(take), true)}
+${kv('施術時間の合計', fmtN(hours)+'時間')}
+${s.hours>0 ? kv('施術可能時間に対する稼働', pct(hours/s.hours)+(hours>s.hours?'(超過)':'')) : ''}
+${kv('実質の時給', real==null?'—':yen(real), real==null?'':(real>=s.hourly?'pos':'neg'), true)}
+${s.hourly>0 && real!=null ? `<p class="hint">目標時給 ${yen(s.hourly)} に対して ${real>=s.hourly?'上回っています':'足りていません(差 '+yen(real-s.hourly)+'/時間)'}。</p>` : ''}
+</div>`;
+}
+
+// 詳細
+h += `<div class="card"><h2>メニューごとの内訳</h2>`;
+S.menus.forEach(m=>{
+const r = calcMenu(m), j = judge(r);
+h += `<details class="menuDetail"><summary><span>${esc(m.name||'(名前なし)')}</span><span class="chip ${j.cls}">${j.txt}</span></summary>
+${kv('販売価格(税込)', yen(m.price))}
+${s.tax==='excl' ? kv('税抜売上', yen(r.net)) : ''}
+${kv('材料費', '-'+yen(r.mat).replace(/^-/,''))}
+${r.other>0 ? kv('その他の変動費', '-'+yen(r.other).replace(/^-/,'')) : ''}
+${kv('決済手数料('+fmtN(s.fee)+'%)', '-'+yen(r.feeCard).replace(/^-/,''))}
+${s.place>0 ? kv('場所代・歩合('+fmtN(s.place)+'%)', '-'+yen(r.feePlace).replace(/^-/,'')) : ''}
+${kv('粗利', yen(r.gross), signCls(r.gross), true)}
+${kv('自分の人件費('+yen(s.hourly)+'×'+fmtN(m.minutes)+'分)', '-'+yen(r.labor).replace(/^-/,''))}
+${kv('固定費の配分', '-'+yen(r.fixed).replace(/^-/,''))}
+${kv('最終利益', yen(r.profit), signCls(r.profit), true)}
+${kv('利益率(税抜売上比)', r.rate==null?'—':pct(r.rate))}
+${kv('材料費率(材料+その他÷税抜売上)', r.costRate==null?'—':pct(r.costRate))}
+${kv('時間あたり粗利', r.grossPH==null?'—':yen(r.grossPH))}
+${kv('目標利益率'+fmtN(s.margin)+'%を満たす価格', r.pTargetUp==null?'計算できません':yen(r.pTargetUp)+'以上')}
+${kv('赤字にならない最低価格', r.pBreakUp==null?'計算できません':yen(r.pBreakUp)+'以上')}
+${r.pTargetUp!=null && m.price>0 ? `<p class="hint">いまの価格との差: ${r.pTargetUp>m.price ? '目標まであと '+yen(r.pTargetUp-m.price)+' 足りません' : '目標より '+yen(m.price-r.pTargetUp)+' 余裕があります'}(100円単位で切り上げた目安)</p>` : ''}
+</details>`;
+});
+h += `</div>`;
+return h;
+}
+
+// ================= 画面:メニュー =================
+function menuLiveHtml(m){
+const r = calcMenu(m), j = judge(r);
+return `材料費 <b>${yen(r.mat+r.other)}</b>(材料費率 ${r.costRate==null?'—':pct(r.costRate)}) ／ 粗利 <b>${yen(r.gross)}</b><br>最終利益 <b class="${signCls(r.profit)}">${yen(r.profit)}</b> <span class="chip ${j.cls}">${j.txt}</span>`;
+}
+function lineInfoHtml(l){
+const m = S.materials.find(x=>x.id===l.matId);
+if(!m) return '材料を選んでください';
+return `${esc(m.unit||'')}　= ${yen(l.amount*unitCost(m))}`;
+}
+function renderMenu(){
+let h = '';
+if(!S.materials.length) h += `<div class="msg warn">先に「材料」タブで材料(ジェルなど)を登録すると、メニューに材料を入れられます。</div>`;
+if(!S.menus.length) h += `<div class="empty">メニューがまだありません。下のボタンで追加してください。</div>`;
+S.menus.forEach(m=>{
+h += `<div class="card" data-card="menu:${m.id}">
+<label class="f"><span class="l">メニュー名</span>${textInput('menu',m.id,'name',m.name,'例：ワンカラー')}</label>
+<div class="grid2">
+<label class="f"><span class="l">販売価格(税込・円)</span>${numInput('menu',m.id,'price',m.price,'例：6000')}</label>
+<label class="f"><span class="l">所要時間(分)</span>${numInput('menu',m.id,'minutes',m.minutes,'例：60')}</label>
+</div>
+<h3>使う材料と量(1回分)</h3>`;
+m.lines.forEach((l,i)=>{
+h += `<div class="line">
+<select data-k="line" data-id="${m.id}" data-i="${i}" data-f="matId">
+<option value="0">材料を選択…</option>
+${S.materials.map(x=>`<option value="${x.id}"${x.id===l.matId?' selected':''}>${esc(x.name||'(名前なし)')}</option>`).join('')}
+</select>
+<div class="amt">${numInput('line',m.id,'amount',l.amount,'使用量',`data-i="${i}"`)}</div>
+<div class="info" data-live="line:${m.id}:${i}">${lineInfoHtml(l)}</div>
+<button class="btn ghost small" data-act="delLine" data-id="${m.id}" data-i="${i}" aria-label="この材料を外す">✕</button>
+</div>`;
+});
+h += `<button class="btn secondary small" data-act="addLine" data-id="${m.id}">＋ 材料を追加</button>
+<div class="grid2" style="margin-top:12px;">
+<label class="f"><span class="l">その他の変動費(円)</span>${numInput('menu',m.id,'other',m.other,'例：パーツ代')}</label>
+<label class="f"><span class="l">月の件数(任意)</span>${numInput('menu',m.id,'count',m.count,'例：20')}</label>
+</div>
+<div class="live" data-live="menu:${m.id}">${menuLiveHtml(m)}</div>
+<div class="rowActions">
+<button class="btn ghost small" data-act="dupMenu" data-id="${m.id}">複製</button>
+<button class="btn dangerOutline small" data-act="delMenu" data-id="${m.id}">このメニューを削除</button>
+</div>
+</div>`;
+});
+h += `<button class="btn full" data-act="addMenu">＋ メニューを追加</button>`;
+return h;
+}
+
+// ================= 画面:材料 =================
+function matLiveHtml(m){
+return m.qty>0 ? `1${esc(m.unit||'')}あたり <b>${fmtN(m.price/m.qty)}円</b>` : '容量を入れると、1あたりの金額が出ます';
+}
+function renderMat(){
+let h = `<div class="card"><p class="hint" style="margin:0;">ジェル・ファイル・コットンなど、施術で使うものの<b>購入した金額</b>と<b>容量</b>を入れます。例：ジェル 2,200円 / 25 g。</p></div>`;
+if(!S.materials.length) h += `<div class="empty">材料がまだありません。</div>`;
+S.materials.forEach(m=>{
+h += `<div class="card" data-card="mat:${m.id}">
+<label class="f"><span class="l">材料名</span>${textInput('mat',m.id,'name',m.name,'例：ベースジェル')}</label>
+<div class="grid2">
+<label class="f"><span class="l">購入金額(円・税込)</span>${numInput('mat',m.id,'price',m.price,'例：2200')}</label>
+<label class="f"><span class="l">容量(数量)</span>${numInput('mat',m.id,'qty',m.qty,'例：25')}</label>
+</div>
+<label class="f"><span class="l">単位</span>${textInput('mat',m.id,'unit',m.unit,'例：g ・ ml ・ 枚 ・ 個',10)}</label>
+<div class="live" data-live="mat:${m.id}">${matLiveHtml(m)}</div>
+<button class="btn dangerOutline small" data-act="delMat" data-id="${m.id}">この材料を削除</button>
+</div>`;
+});
+h += `<button class="btn full" data-act="addMat">＋ 材料を追加</button>`;
+return h;
+}
+
+// ================= 画面:回数券 =================
+function couponCalc(c){
+const menu = S.menus.find(m=>m.id===c.menuId);
+if(!menu) return null;
+const per = c.price / c.sessions;
+const r = calcMenu(menu, per);
+const normal = menu.price;
+return {menu, per, r, discount: normal>0 ? 1 - per/normal : null, total: r.profit * c.sessions,
+minTotal: r.pTarget==null ? null : ceilTo(r.pTarget*c.sessions, 100),
+breakTotal: r.pBreak==null ? null : ceilTo(r.pBreak*c.sessions, 100)};
+}
+function couponLiveHtml(c){
+const x = couponCalc(c);
+if(!x) return 'メニューを選んでください';
+const j = judge(x.r);
+return `1回あたり <b>${yen(x.per)}</b>(通常 ${yen(x.menu.price)}${x.discount==null?'':'・'+(x.discount>=0?pct(x.discount)+'引き':pct(-x.discount)+'上乗せ')})<br>
+1回あたり利益 <b class="${signCls(x.r.profit)}">${yen(x.r.profit)}</b>(利益率 ${x.r.rate==null?'—':pct(x.r.rate)}) <span class="chip ${j.cls}">${j.txt}</span><br>
+全${c.sessions}回の利益 <b class="${signCls(x.total)}">${yen(x.total)}</b><br>
+目標利益率${fmtN(S.settings.margin)}%を守れる回数券の価格: <b>${x.minTotal==null?'計算できません':yen(x.minTotal)+'以上'}</b><br>
+赤字にならない最低価格: <b>${x.breakTotal==null?'計算できません':yen(x.breakTotal)+'以上'}</b>`;
+}
+function renderCoupon(){
+let h = `<div class="card"><p class="hint" style="margin:0;">メニューを数回分まとめて割引で売るときの利益を確認します。1回あたりの材料費・時間は、そのメニューと同じとして計算します。</p></div>`;
+if(!S.menus.length) h += `<div class="msg warn">先に「メニュー」を登録してください。</div>`;
+if(!S.coupons.length) h += `<div class="empty">回数券がまだありません。</div>`;
+S.coupons.forEach(c=>{
+h += `<div class="card" data-card="coupon:${c.id}">
+<label class="f"><span class="l">回数券の名前</span>${textInput('coupon',c.id,'name',c.name,'例：ケア4回券')}</label>
+<label class="f"><span class="l">対象のメニュー</span>
+<select data-k="coupon" data-id="${c.id}" data-f="menuId">
+${S.menus.map(m=>`<option value="${m.id}"${m.id===c.menuId?' selected':''}>${esc(m.name||'(名前なし)')}</option>`).join('')}
+</select></label>
+<div class="grid2">
+<label class="f"><span class="l">回数</span>${numInput('coupon',c.id,'sessions',c.sessions,'例：4')}</label>
+<label class="f"><span class="l">回数券の価格(税込・円)</span>${numInput('coupon',c.id,'price',c.price,'例：14000')}</label>
+</div>
+<div class="live" data-live="coupon:${c.id}">${couponLiveHtml(c)}</div>
+<button class="btn dangerOutline small" data-act="delCoupon" data-id="${c.id}">この回数券を削除</button>
+</div>`;
+});
+h += `<button class="btn full" data-act="addCoupon"${S.menus.length?'':' disabled'}>＋ 回数券を追加</button>
+<p class="hint">回数券を前払いで受け取ったときの売上計上・消費税の扱いは、税理士または税務署にご確認ください。</p>`;
+return h;
+}
+
+// ================= 画面:設定 =================
+function renderSet(){
+const s = S.settings;
+const sf = (field, val, ph, unit)=> `<div class="sfx">${numInput('set',0,field,val,ph)}<span>${unit}</span></div>`;
+return `<div class="card"><h2>基本の設定</h2>
+<label class="f"><span class="l">自分の目標時給</span>${sf('hourly',s.hourly,'例：2000','円/時間')}
+<p class="hint">自分の時間に対して、最低でもほしい金額です。目標の月収 ÷ 月の施術可能時間でも逆算できます。</p></label>
+<label class="f"><span class="l">月の固定費</span>${sf('fixed',s.fixed,'例：30000','円/月')}
+<p class="hint">施術の件数に関係なく毎月かかる費用の合計です(家賃・場所代の定額・通信費・保険・サブスク・道具の償却など)。</p></label>
+<label class="f"><span class="l">月の施術可能時間</span>${sf('hours',s.hours,'例：80','時間/月')}
+<p class="hint">固定費を時間に割り振る分母です。実際に予約を受けられる時間で入れてください(例：週20時間×4週=80時間)。</p></label>
+<label class="f"><span class="l">決済手数料</span>${sf('fee',s.fee,'例：2.5','%')}
+<p class="hint">Squareの対面決済は2.5%〜です(年間決済額3,000万円未満・主要カードブランドの場合。2026年11月時点のSquare公式サイトの記載)。条件により率が変わります。現金払いも含めた平均の率を入れてください。</p></label>
+<label class="f"><span class="l">場所代・提携先への歩合</span>${sf('place',s.place,'例：0','%')}
+<p class="hint">提携先などに売上の何%を支払うかです。ない場合は0。計算では、税込の売上に対する割合として扱います。</p></label>
+<label class="f"><span class="l">目標利益率</span>${sf('margin',s.margin,'例：30','%')}
+<p class="hint">自分の人件費と固定費を引いたあとに、税抜売上の何%を残したいかです。初期値の30%は仮の数字です。ご自身の目標に変えてください。</p></label>
+<h3>消費税の扱い</h3>
+<div class="radioRow">
+<label><input type="radio" name="tax" value="none" data-k="set" data-f="tax"${s.tax==='none'?' checked':''}>税込のまま計算</label>
+<label><input type="radio" name="tax" value="excl" data-k="set" data-f="tax"${s.tax==='excl'?' checked':''}>税抜で計算(課税事業者)</label>
+</div>
+<div id="taxRateRow" class="${s.tax==='excl'?'':'hidden'}"><label class="f"><span class="l">消費税率</span>${sf('taxRate',s.taxRate,'10','%')}</label></div>
+<p class="hint">免税事業者などは「税込のまま」で、課税事業者は「税抜で計算」を選びます。仕入れの金額は支払った金額(税込)をそのまま入れてください。どちらか分からないときは、税理士または税務署にご確認ください。</p>
+</div>
+
+<div class="card"><h2>データの保存・サンプル</h2>
+<p class="hint" style="margin:0 0 10px;">入力した内容は、この端末のブラウザに自動で保存されます。ブラウザのデータ消去や端末の故障で消えることがあるため、バックアップ(JSON)も取ってください。</p>
+<div class="grid2">
+<button class="btn secondary" data-act="export">バックアップを保存</button>
+<button class="btn secondary" data-act="import">バックアップを読み込む</button>
+</div>
+<input type="file" id="importFile" accept=".json,application/json" class="hidden">
+<div class="grid2" style="margin-top:10px;">
+<button class="btn ghost" data-act="sample">サンプルを入れる</button>
+<button class="btn dangerOutline" data-act="clearAll">全データを消去</button>
+</div>
+</div>`;
+}
+
+// ================= 描画 =================
+function render(){
+$$('#tabs button').forEach(b=> b.classList.toggle('active', b.dataset.tab===tab));
+$('#view').innerHTML = tab==='result' ? renderResult()
+: tab==='menu' ? renderMenu()
+: tab==='mat' ? renderMat()
+: tab==='coupon' ? renderCoupon()
+: renderSet();
+}
+function rerender(){ const y = window.scrollY; render(); window.scrollTo(0,y); }
+function setTab(t){ tab = t; msg('',''); render(); window.scrollTo(0,0); }
+$('#tabs').addEventListener('click', (e)=>{ const b = e.target.closest('button[data-tab]'); if(b) setTab(b.dataset.tab); });
+
+function refreshLive(){
+$$('[data-live]').forEach(el=>{
+const p = el.dataset.live.split(':');
+if(p[0]==='menu'){ const m=S.menus.find(x=>x.id===+p[1]); if(m) el.innerHTML = menuLiveHtml(m); }
+else if(p[0]==='mat'){ const m=S.materials.find(x=>x.id===+p[1]); if(m) el.innerHTML = matLiveHtml(m); }
+else if(p[0]==='line'){ const m=S.menus.find(x=>x.id===+p[1]); const l=m&&m.lines[+p[2]]; if(l) el.innerHTML = lineInfoHtml(l); }
+else if(p[0]==='coupon'){ const c=S.coupons.find(x=>x.id===+p[1]); if(c) el.innerHTML = couponLiveHtml(c); }
+});
+}
+
+// ================= 入力 =================
+function onEdit(e){
+const el = e.target;
+const k = el.dataset && el.dataset.k;
+if(!k) return;
+const f = el.dataset.f, id = +el.dataset.id;
+const isNum = !!el.dataset.num;
+const v = isNum ? parseNum(el.value) : el.value;
+if(k==='set'){
+const s = S.settings;
+if(f==='tax'){
+s.tax = el.value==='excl' ? 'excl' : 'none';
+const row = $('#taxRateRow'); if(row) row.classList.toggle('hidden', s.tax!=='excl');
+} else if(f==='hours'){ s.hours = Math.min(v,744); }
+else if(f==='fee' || f==='place'){ s[f] = Math.min(v,100); }
+else if(f==='margin'){ s.margin = Math.min(v,95); }
+else if(f==='taxRate'){ s.taxRate = Math.min(v,100); }
+else if(f in s){ s[f] = v; }
+} else if(k==='menu'){
+const m = S.menus.find(x=>x.id===id); if(!m) return;
+if(f==='name') m.name = String(v).slice(0,60);
+else if(f==='minutes') m.minutes = Math.min(v,1440);
+else m[f] = v;
+} else if(k==='line'){
+const m = S.menus.find(x=>x.id===id); const l = m && m.lines[+el.dataset.i]; if(!l) return;
+if(f==='matId') l.matId = +el.value || 0; else l.amount = v;
+} else if(k==='mat'){
+const m = S.materials.find(x=>x.id===id); if(!m) return;
+if(f==='name') m.name = String(v).slice(0,60);
+else if(f==='unit') m.unit = String(v).slice(0,10);
+else m[f] = v;
+} else if(k==='coupon'){
+const c = S.coupons.find(x=>x.id===id); if(!c) return;
+if(f==='name') c.name = String(v).slice(0,60);
+else if(f==='menuId') c.menuId = +el.value;
+else if(f==='sessions') c.sessions = Math.min(Math.max(Math.round(v)||1,1),100);
+else c[f] = v;
+}
+refreshLive(); touch();
+}
+document.addEventListener('input', onEdit);
+document.addEventListener('change', onEdit);
+// 入力欄から離れたとき、全角数字などを半角の数字に整える
+document.addEventListener('focusout', (e)=>{
+const el = e.target;
+if(el.dataset && el.dataset.num && el.value.trim()!==''){
+const n = parseNum(el.value);
+el.value = n ? String(n) : '';
+}
+});
+
+// ================= 操作 =================
+function sampleData(){
+const d = defaultState();
+d.settings = {hourly:2000, fixed:30000, hours:80, fee:2.5, place:0, tax:'none', taxRate:10, margin:30};
+d.materials = [
+{id:1,name:'ベースジェル',price:2200,qty:25,unit:'g'},
+{id:2,name:'カラージェル',price:1650,qty:10,unit:'g'},
+{id:3,name:'トップジェル',price:2200,qty:25,unit:'g'},
+{id:4,name:'ファイル・バッファー',price:600,qty:50,unit:'枚'},
+{id:5,name:'コットン・ワイプ',price:400,qty:200,unit:'枚'},
+{id:6,name:'キューティクルオイル',price:1100,qty:10,unit:'ml'},
+{id:7,name:'アートパーツ',price:1000,qty:10,unit:'回分'}];
+d.menus = [
+{id:8,name:'ワンカラー',price:6000,minutes:60,other:0,count:20,lines:[{matId:1,amount:0.3},{matId:2,amount:0.4},{matId:3,amount:0.3},{matId:4,amount:2},{matId:5,amount:10},{matId:6,amount:0.1}]},
+{id:9,name:'ネイルアート(フルオーダー)',price:9000,minutes:120,other:300,count:5,lines:[{matId:1,amount:0.3},{matId:2,amount:0.8},{matId:3,amount:0.4},{matId:4,amount:2},{matId:5,amount:15},{matId:6,amount:0.1},{matId:7,amount:1}]},
+{id:10,name:'ケアのみ',price:4000,minutes:45,other:0,count:10,lines:[{matId:4,amount:2},{matId:5,amount:8},{matId:6,amount:0.3}]}];
+d.coupons = [{id:11,name:'ケア4回券',menuId:10,sessions:4,price:14000}];
+d.idc = 12;
+return d;
+}
+function nextId(){ return S.idc++; }
+
+function loadSample(){
+S = sampleData(); touch(); saveNow(); tab = 'result'; render(); window.scrollTo(0,0);
+msg('ok','サンプルを入れました。数字は説明用です。ご自身の数字に書き換えてください。');
+}
+function exportData(){
+const blob = new Blob([JSON.stringify(S)], {type:'application/json'});
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url; a.download = `NailCost_${todayStr()}.json`;
+document.body.appendChild(a); a.click(); document.body.removeChild(a);
+setTimeout(()=>URL.revokeObjectURL(url), 1000);
+msg('ok','バックアップを保存しました。ダウンロードされたファイルを大切に保管してください。');
+}
+
+document.addEventListener('click', (e)=>{
+const b = e.target.closest('[data-act]');
+if(!b) return;
+const act = b.dataset.act, id = +b.dataset.id;
+if(act==='sample'){
+if(hasData()) confirmBox('サンプルを入れますか?','いま入っている材料・メニュー・回数券・設定は、サンプルの内容に置き換わります。\n必要なら先にバックアップを保存してください。','置き換える', loadSample);
+else loadSample();
+}
+else if(act==='addMenu'){ S.menus.push({id:nextId(),name:'',price:0,minutes:0,other:0,count:0,lines:[]}); touch(); rerender(); }
+else if(act==='dupMenu'){
+const m = S.menus.find(x=>x.id===id); if(!m) return;
+const c = JSON.parse(JSON.stringify(m)); c.id = nextId(); c.name = (m.name||'メニュー') + '(コピー)';
+S.menus.splice(S.menus.indexOf(m)+1, 0, c); touch(); rerender();
+}
+else if(act==='delMenu'){
+const m = S.menus.find(x=>x.id===id); if(!m) return;
+const nc = S.coupons.filter(c=>c.menuId===id).length;
+confirmBox('このメニューを削除しますか?', `「${m.name||'(名前なし)'}」を削除します。${nc?`\nこのメニューの回数券${nc}件も削除されます。`:''}\nこの操作は元に戻せません。`, '削除する', ()=>{
+S.menus = S.menus.filter(x=>x.id!==id); S.coupons = S.coupons.filter(c=>c.menuId!==id);
+touch(); rerender();
+});
+}
+else if(act==='addLine'){
+const m = S.menus.find(x=>x.id===id); if(!m) return;
+if(!S.materials.length){ msg('warn','先に「材料」タブで材料を登録してください。'); window.scrollTo(0,0); return; }
+m.lines.push({matId:S.materials[0].id, amount:0}); touch(); rerender();
+}
+else if(act==='delLine'){
+const m = S.menus.find(x=>x.id===id); if(!m) return;
+m.lines.splice(+b.dataset.i,1); touch(); rerender();
+}
+else if(act==='addMat'){ S.materials.push({id:nextId(),name:'',price:0,qty:0,unit:''}); touch(); rerender(); }
+else if(act==='delMat'){
+const m = S.materials.find(x=>x.id===id); if(!m) return;
+const used = S.menus.filter(x=>x.lines.some(l=>l.matId===id)).length;
+confirmBox('この材料を削除しますか?', `「${m.name||'(名前なし)'}」を削除します。${used?`\n使っている${used}件のメニューから、この材料が外れます(材料費が下がります)。`:''}\nこの操作は元に戻せません。`, '削除する', ()=>{
+S.materials = S.materials.filter(x=>x.id!==id);
+S.menus.forEach(x=>{ x.lines = x.lines.filter(l=>l.matId!==id); });
+touch(); rerender();
+});
+}
+else if(act==='addCoupon'){
+if(!S.menus.length) return;
+S.coupons.push({id:nextId(),name:'',menuId:S.menus[0].id,sessions:4,price:0}); touch(); rerender();
+}
+else if(act==='delCoupon'){
+const c = S.coupons.find(x=>x.id===id); if(!c) return;
+confirmBox('この回数券を削除しますか?', `「${c.name||'(名前なし)'}」を削除します。\nこの操作は元に戻せません。`, '削除する', ()=>{
+S.coupons = S.coupons.filter(x=>x.id!==id); touch(); rerender();
+});
+}
+else if(act==='export'){ exportData(); }
+else if(act==='import'){ $('#importFile').click(); }
+else if(act==='clearAll'){
+confirmBox('全データを消去しますか?','設定・材料・メニュー・回数券をすべて消去します。\nこの操作は元に戻せません。先にバックアップを保存してください。','消去する', ()=>{
+S = defaultState(); touch(); saveNow(); tab='set'; render(); window.scrollTo(0,0); msg('ok','全データを消去しました。');
+});
+}
+});
+
+document.addEventListener('change', async (e)=>{
+if(e.target.id!=='importFile') return;
+const file = e.target.files[0];
+e.target.value = '';
+if(!file) return;
+let clean;
+try{ clean = sanitize(JSON.parse(await file.text())); }
+catch(err){ msg('bad','読み込みに失敗しました。このアプリで保存したJSONファイルを選んでください。'); window.scrollTo(0,0); return; }
+const apply = ()=>{ S = clean; touch(); saveNow(); tab='result'; render(); window.scrollTo(0,0); msg('ok',`読み込みました(材料${S.materials.length}件・メニュー${S.menus.length}件・回数券${S.coupons.length}件)。`); };
+if(hasData()) confirmBox('読み込んだ内容に置き換えますか?','いま入っているデータは、読み込むファイルの内容に置き換わります。\n必要なら先にバックアップを保存してください。','置き換える', apply);
+else apply();
+});
+
+// ================= 起動 =================
+(function init(){
+try{
+const raw = localStorage.getItem(KEY);
+if(raw){ S = sanitize(JSON.parse(raw)); setStatus('前回のデータを復元しました'); }
+else setStatus('入力内容は自動で保存されます');
+}catch(err){
+S = defaultState();
+storageOK = false;
+setStatus('⚠ この環境では自動保存が使えません。バックアップを保存してください', true);
+}
+render();
+})();
+</script>
+</body>
+</html>
