@@ -20,8 +20,8 @@ h1{font-size:21px;font-weight:700;margin:0;}
 #status{font-size:11.5px;color:var(--soft);text-align:right;min-height:18px;margin:0 0 4px;}
 #status.bad{color:var(--warn);}
 
-.tabs{position:sticky;top:0;z-index:5;background:var(--bg);display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:8px 0 10px;}
-.tabs button{border:1px solid var(--line);background:var(--surface);color:var(--soft);border-radius:10px;padding:9px 2px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;}
+.tabs{position:sticky;top:0;z-index:5;background:var(--bg);display:grid;grid-template-columns:repeat(6,1fr);gap:4px;padding:8px 0 10px;}
+.tabs button{border:1px solid var(--line);background:var(--surface);color:var(--soft);border-radius:10px;padding:9px 0;font-size:12.5px;font-weight:600;font-family:inherit;cursor:pointer;}
 .tabs button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
 
 .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;}
@@ -114,6 +114,7 @@ footer{font-size:11.5px;color:var(--soft);margin-top:18px;text-align:center;}
 <button data-tab="result">結果</button>
 <button data-tab="menu">メニュー</button>
 <button data-tab="mat">材料</button>
+<button data-tab="price">価格</button>
 <button data-tab="coupon">回数券</button>
 <button data-tab="set">設定</button>
 </nav>
@@ -163,13 +164,15 @@ const r = Math.round(n);
 return (r<0?'-':'') + Math.abs(r).toLocaleString('ja-JP') + '円';
 }
 function pct(x){ return (x*100).toFixed(1).replace(/\.0$/,'') + '%'; }
+function fixedTotal(){ return S.settings.rent + S.settings.fixed; }
+function roundUnit(){ return [10,50,100,500,1000].includes(S.settings.round) ? S.settings.round : 100; }
 function ceilTo(n, unit){ return Math.ceil(n/unit - 1e-9) * unit; }
 function strOf(n){ return n ? String(n) : ''; }
 
 // ================= 状態 =================
 function defaultState(){
-return { settings:{hourly:0, fixed:0, hours:0, fee:0, place:0, tax:'none', taxRate:10, margin:30},
-materials:[], menus:[], coupons:[], idc:1 };
+return { settings:{hourly:0, rent:0, fixed:0, round:100, hours:0, fee:0, place:0, tax:'none', taxRate:10, margin:30},
+materials:[], menus:[], coupons:[], idc:1, trial:{cost:0, minutes:0} };
 }
 let S = defaultState();
 let tab = 'result';
@@ -194,7 +197,7 @@ const other = Math.round(menu.other);
 const feeCard = Math.round(price * f1);
 const feePlace = Math.round(price * f2);
 const hours = menu.minutes / 60;
-const fixedPH = s.hours>0 ? s.fixed / s.hours : 0;
+const fixedPH = s.hours>0 ? fixedTotal() / s.hours : 0;
 const labor = Math.round(hours * s.hourly);
 const fixed = Math.round(hours * fixedPH);
 const gross = net - mat - other - feeCard - feePlace;
@@ -209,8 +212,8 @@ rate: net>0 ? profit/net : null,
 costRate: net>0 ? (mat+other)/net : null,
 grossPH: hours>0 ? gross/hours : null,
 pBreak, pTarget,
-pBreakUp: pBreak==null ? null : ceilTo(pBreak,100),
-pTargetUp: pTarget==null ? null : ceilTo(pTarget,100) };
+pBreakUp: pBreak==null ? null : ceilTo(pBreak,roundUnit()),
+pTargetUp: pTarget==null ? null : ceilTo(pTarget,roundUnit()) };
 }
 function judge(r){
 if(!(r.price>0)) return {cls:'mid', txt:'価格未入力'};
@@ -220,7 +223,7 @@ return {cls:'mid', txt:'目標未満'};
 }
 function requiredPH(){
 const s = S.settings;
-return s.hourly + (s.hours>0 ? s.fixed/s.hours : 0);
+return s.hourly + (s.hours>0 ? fixedTotal()/s.hours : 0);
 }
 
 // ================= 保存 =================
@@ -251,7 +254,7 @@ const str = (x,n)=> typeof x==='string' ? x.slice(0,n||60) : '';
 const clamp = (x,a,b)=> Math.min(Math.max(x,a),b);
 const st = d.settings && typeof d.settings==='object' ? d.settings : {};
 const settings = {
-hourly: parseNum(st.hourly), fixed: parseNum(st.fixed), hours: clamp(parseNum(st.hours),0,744),
+hourly: parseNum(st.hourly), rent: parseNum(st.rent), fixed: parseNum(st.fixed), round: [10,50,100,500,1000].includes(parseNum(st.round)) ? parseNum(st.round) : 100, hours: clamp(parseNum(st.hours),0,744),
 fee: clamp(parseNum(st.fee),0,100), place: clamp(parseNum(st.place),0,100),
 tax: st.tax==='excl' ? 'excl' : 'none',
 taxRate: clamp(parseNum(st.taxRate)||10,0,100),
@@ -284,7 +287,9 @@ coupons.push({id:c.id, name:str(c.name), menuId:c.menuId, sessions:clamp(Math.ro
 });
 let maxId = 0; ids.forEach(i=>{ if(i>maxId) maxId=i; });
 const idc = Math.max(maxId+1, Number.isInteger(d.idc) ? d.idc : 1);
-return {settings, materials, menus, coupons, idc};
+const tr = d.trial && typeof d.trial==='object' ? d.trial : {};
+const trial = {cost:parseNum(tr.cost), minutes:clamp(parseNum(tr.minutes),0,1440)};
+return {settings, materials, menus, coupons, idc, trial};
 }
 function hasData(){ return S.materials.length || S.menus.length || S.coupons.length; }
 
@@ -333,8 +338,8 @@ return `<div class="card">
 let h = '';
 const warns = [];
 if(s.hourly<=0) warns.push('「設定」の自分の目標時給が未入力のため、自分の人件費は0円で計算されています。');
-if(s.fixed>0 && s.hours<=0) warns.push('月の施術可能時間が未入力のため、固定費を配分できていません。');
-if(s.fixed<=0) warns.push('月の固定費が未入力のため、固定費は0円で計算されています。');
+if(fixedTotal()>0 && s.hours<=0) warns.push('月の施術可能時間が未入力のため、固定費を配分できていません。');
+if(fixedTotal()<=0) warns.push('賃料・月の固定費が未入力のため、固定費は0円で計算されています。');
 if(s.fee+s.place>=100) warns.push('手数料と場所代の合計が100%以上です。「設定」を確認してください。');
 const noTime = S.menus.filter(m=>m.minutes<=0).length;
 if(noTime) warns.push(`所要時間が未入力のメニューが${noTime}件あります(人件費・固定費が0円になります)。`);
@@ -364,13 +369,13 @@ const withCount = S.menus.filter(m=>m.count>0);
 if(withCount.length){
 let sales=0, gross=0, hours=0;
 withCount.forEach(m=>{ const r=calcMenu(m); sales += m.price*m.count; gross += r.gross*m.count; hours += r.hours*m.count; });
-const take = gross - s.fixed;
+const take = gross - fixedTotal();
 const real = hours>0 ? take/hours : null;
 h += `<div class="card"><h2>月間シミュレーション</h2>
 <p class="hint" style="margin:0 0 8px;">各メニューの「月の件数」から計算しています。</p>
 ${kv('月の売上(税込)', yen(sales))}
 ${kv('粗利の合計', yen(gross))}
-${kv('月の固定費', '-'+yen(s.fixed).replace(/^-/,''))}
+${kv('月の固定費(賃料込み)', '-'+yen(fixedTotal()).replace(/^-/,''))}
 ${kv('自分の取り分(月)', yen(take), signCls(take), true)}
 ${kv('施術時間の合計', fmtN(hours)+'時間')}
 ${s.hours>0 ? kv('施術可能時間に対する稼働', pct(hours/s.hours)+(hours>s.hours?'(超過)':'')) : ''}
@@ -478,6 +483,89 @@ h += `<button class="btn full" data-act="addMat">＋ 材料を追加</button>`;
 return h;
 }
 
+
+// ================= 画面:価格 =================
+function breakdownHtml(menu, price){
+  const s = S.settings, r = calcMenu(menu, price);
+  const rentShare = s.hours>0 ? Math.min(r.fixed, Math.round(r.hours * s.rent / s.hours)) : 0;
+  const otherFixed = r.fixed - rentShare;
+  const neg = n => '-'+yen(n).replace(/^-/,'');
+  return `${kv('販売価格(税込)', yen(price), '', true)}
+${s.tax==='excl' ? kv('消費税', neg(price - r.net)) : ''}
+${kv('材料費(購入原価)', neg(r.mat + r.other))}
+${kv('決済手数料・場所代', neg(r.feeCard + r.feePlace))}
+${kv('賃料の配分', neg(rentShare))}
+${kv('その他固定費の配分', neg(otherFixed))}
+${kv('自分の人件費', neg(r.labor))}
+${kv('手元に残る利益', yen(r.profit), signCls(r.profit), true)}
+${kv('利益率(税抜売上比)', r.rate==null?'—':pct(r.rate))}`;
+}
+function priceBodyHtml(){
+  const s = S.settings;
+  let h = '';
+  const warns = [];
+  if(s.hours<=0) warns.push('「設定」の月の施術可能時間が未入力のため、賃料を各メニューに配分できません(賃料0円で計算されます)。');
+  if(s.rent<=0) warns.push('「設定」の賃料が未入力です(賃料0円で計算されます)。');
+  if(s.hourly<=0) warns.push('「設定」の自分の目標時給が未入力です(人件費0円で計算されます)。');
+  if(s.fee+s.place>=100) warns.push('手数料と場所代の合計が100%以上のため、価格を計算できません。');
+  if(warns.length) h += `<div class="msg warn">${warns.map(w=>'・'+esc(w)).join('<br>')}</div>`;
+  const rentPH = s.hours>0 ? s.rent/s.hours : 0;
+  h += `<div class="card"><h2>1時間あたりのコスト</h2>
+${kv('賃料の配分', yen(rentPH)+' / 時間')}
+${kv('その他固定費の配分', yen(s.hours>0 ? s.fixed/s.hours : 0)+' / 時間')}
+${kv('自分の人件費(目標時給)', yen(s.hourly)+' / 時間')}
+${kv('合計(施術1時間で最低限ほしい額)', yen(requiredPH())+' / 時間', '', true)}
+<p class="hint">賃料 ${yen(s.rent)} ÷ 月の施術可能時間 ${fmtN(s.hours)}時間。予約が埋まらない時間も含めて割っているので、稼働が少ないほど実際の負担は重くなります。</p></div>`;
+  if(!S.menus.length){
+    h += `<div class="empty">「メニュー」を登録すると、メニューごとの提案価格が出ます。</div>`;
+    return h;
+  }
+  S.menus.forEach(m=>{
+    const r = calcMenu(m);
+    h += `<div class="card"><h2>${esc(m.name||'(名前なし)')}<span class="note">　${fmtN(m.minutes)}分</span></h2>`;
+    if(r.pTargetUp==null){
+      h += `<div class="msg bad">手数料などの合計が大きすぎて、価格を計算できません。</div></div>`;
+      return;
+    }
+    const diff = m.price>0 ? r.pTargetUp - m.price : null;
+    h += `<div class="live"><div style="font-size:12px;color:var(--soft);">提案価格(利益率${fmtN(s.margin)}%・税込)</div>
+<div style="font-size:24px;font-weight:700;color:var(--accent-ink);">${yen(r.pTargetUp)}</div>
+赤字にならない最低価格: <b>${yen(r.pBreakUp)}</b><br>
+${diff==null ? '現在の価格が未入力です' : (diff>0 ? `現在の価格 ${yen(m.price)} より <b class="neg">${yen(diff)} 高い</b>` : `現在の価格 ${yen(m.price)} は提案価格以上です(<b class="pos">${yen(-diff)} 余裕</b>)`)}</div>
+<h3>提案価格の内訳</h3>${breakdownHtml(m, r.pTargetUp)}</div>`;
+  });
+  return h;
+}
+function trialHtml(){
+  const s = S.settings, t = S.trial;
+  const menu = {name:'', price:0, minutes:t.minutes, other:t.cost, lines:[], count:0};
+  const r = calcMenu(menu);
+  if(t.cost<=0 && t.minutes<=0) return '購入原価と所要時間を入れてください。';
+  if(r.pTargetUp==null) return '手数料などの合計が大きすぎて、価格を計算できません。';
+  return `<div style="font-size:12px;color:var(--soft);">提案価格(利益率${fmtN(s.margin)}%・税込)</div>
+<div style="font-size:24px;font-weight:700;color:var(--accent-ink);">${yen(r.pTargetUp)}</div>
+赤字にならない最低価格: <b>${yen(r.pBreakUp)}</b>
+<h3>提案価格の内訳</h3>${breakdownHtml(menu, r.pTargetUp)}`;
+}
+function renderPrice(){
+  const s = S.settings, t = S.trial;
+  return `<div class="card"><h2>価格の提案</h2>
+<p class="hint" style="margin:0 0 10px;">材料の購入原価・賃料・自分の人件費・手数料をすべて足して、目標の利益率が残る価格を出します。結果は、お客様に出す価格(税込)の目安です。</p>
+<div class="grid2">
+<label class="f"><span class="l">目標利益率</span><div class="sfx">${numInput('set',0,'margin',s.margin,'例：30')}<span>%</span></div></label>
+<label class="f"><span class="l">価格の丸め(切り上げ)</span>
+<select data-k="set" data-f="round">${[10,50,100,500,1000].map(u=>`<option value="${u}"${u===roundUnit()?' selected':''}>${u}円単位</option>`).join('')}</select></label>
+</div></div>
+<div data-live="price:0">${priceBodyHtml()}</div>
+<div class="card"><h2>新メニューの試算</h2>
+<p class="hint" style="margin:0 0 10px;">まだ登録していないメニューを、材料の購入原価と所要時間だけで試算できます。</p>
+<div class="grid2">
+<label class="f"><span class="l">購入原価(円・1回分の材料費)</span>${numInput('trial',0,'cost',t.cost,'例：300')}</label>
+<label class="f"><span class="l">所要時間(分)</span>${numInput('trial',0,'minutes',t.minutes,'例：60')}</label>
+</div>
+<div class="live" data-live="trial:0">${trialHtml()}</div></div>`;
+}
+
 // ================= 画面:回数券 =================
 function couponCalc(c){
 const menu = S.menus.find(m=>m.id===c.menuId);
@@ -486,8 +574,8 @@ const per = c.price / c.sessions;
 const r = calcMenu(menu, per);
 const normal = menu.price;
 return {menu, per, r, discount: normal>0 ? 1 - per/normal : null, total: r.profit * c.sessions,
-minTotal: r.pTarget==null ? null : ceilTo(r.pTarget*c.sessions, 100),
-breakTotal: r.pBreak==null ? null : ceilTo(r.pBreak*c.sessions, 100)};
+minTotal: r.pTarget==null ? null : ceilTo(r.pTarget*c.sessions, roundUnit()),
+breakTotal: r.pBreak==null ? null : ceilTo(r.pBreak*c.sessions, roundUnit())};
 }
 function couponLiveHtml(c){
 const x = couponCalc(c);
@@ -530,8 +618,10 @@ const sf = (field, val, ph, unit)=> `<div class="sfx">${numInput('set',0,field,v
 return `<div class="card"><h2>基本の設定</h2>
 <label class="f"><span class="l">自分の目標時給</span>${sf('hourly',s.hourly,'例：2000','円/時間')}
 <p class="hint">自分の時間に対して、最低でもほしい金額です。目標の月収 ÷ 月の施術可能時間でも逆算できます。</p></label>
-<label class="f"><span class="l">月の固定費</span>${sf('fixed',s.fixed,'例：30000','円/月')}
-<p class="hint">施術の件数に関係なく毎月かかる費用の合計です(家賃・場所代の定額・通信費・保険・サブスク・道具の償却など)。</p></label>
+<label class="f"><span class="l">賃料(家賃・場所代の定額)</span>${sf('rent',s.rent,'例：20000','円/月')}
+<p class="hint">サロン・ブースの家賃、美容室への定額の場所代など、毎月決まった額です。「価格」タブで、賃料を各メニューに配分して価格を提案します。</p></label>
+<label class="f"><span class="l">その他の月の固定費</span>${sf('fixed',s.fixed,'例：10000','円/月')}
+<p class="hint">賃料以外で、施術の件数に関係なく毎月かかる費用です(通信費・保険・サブスク・道具の償却など)。</p></label>
 <label class="f"><span class="l">月の施術可能時間</span>${sf('hours',s.hours,'例：80','時間/月')}
 <p class="hint">固定費を時間に割り振る分母です。実際に予約を受けられる時間で入れてください(例：週20時間×4週=80時間)。</p></label>
 <label class="f"><span class="l">決済手数料</span>${sf('fee',s.fee,'例：2.5','%')}
@@ -569,6 +659,7 @@ $$('#tabs button').forEach(b=> b.classList.toggle('active', b.dataset.tab===tab)
 $('#view').innerHTML = tab==='result' ? renderResult()
 : tab==='menu' ? renderMenu()
 : tab==='mat' ? renderMat()
+: tab==='price' ? renderPrice()
 : tab==='coupon' ? renderCoupon()
 : renderSet();
 }
@@ -583,6 +674,8 @@ if(p[0]==='menu'){ const m=S.menus.find(x=>x.id===+p[1]); if(m) el.innerHTML = m
 else if(p[0]==='mat'){ const m=S.materials.find(x=>x.id===+p[1]); if(m) el.innerHTML = matLiveHtml(m); }
 else if(p[0]==='line'){ const m=S.menus.find(x=>x.id===+p[1]); const l=m&&m.lines[+p[2]]; if(l) el.innerHTML = lineInfoHtml(l); }
 else if(p[0]==='coupon'){ const c=S.coupons.find(x=>x.id===+p[1]); if(c) el.innerHTML = couponLiveHtml(c); }
+else if(p[0]==='price'){ el.innerHTML = priceBodyHtml(); }
+else if(p[0]==='trial'){ el.innerHTML = trialHtml(); }
 });
 }
 
@@ -602,8 +695,11 @@ const row = $('#taxRateRow'); if(row) row.classList.toggle('hidden', s.tax!=='ex
 } else if(f==='hours'){ s.hours = Math.min(v,744); }
 else if(f==='fee' || f==='place'){ s[f] = Math.min(v,100); }
 else if(f==='margin'){ s.margin = Math.min(v,95); }
+else if(f==='round'){ s.round = [10,50,100,500,1000].includes(+el.value) ? +el.value : 100; }
 else if(f==='taxRate'){ s.taxRate = Math.min(v,100); }
 else if(f in s){ s[f] = v; }
+} else if(k==='trial'){
+if(f==='minutes') S.trial.minutes = Math.min(v,1440); else S.trial.cost = v;
 } else if(k==='menu'){
 const m = S.menus.find(x=>x.id===id); if(!m) return;
 if(f==='name') m.name = String(v).slice(0,60);
@@ -640,7 +736,7 @@ el.value = n ? String(n) : '';
 // ================= 操作 =================
 function sampleData(){
 const d = defaultState();
-d.settings = {hourly:2000, fixed:30000, hours:80, fee:2.5, place:0, tax:'none', taxRate:10, margin:30};
+d.settings = {hourly:2000, rent:20000, fixed:10000, round:100, hours:80, fee:2.5, place:0, tax:'none', taxRate:10, margin:30};
 d.materials = [
 {id:1,name:'ベースジェル',price:2200,qty:25,unit:'g'},
 {id:2,name:'カラージェル',price:1650,qty:10,unit:'g'},
