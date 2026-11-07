@@ -188,6 +188,7 @@ const EX_IDS = EX_GROUPS.map(g=>g.id);
 function exMonthly(e){ return e.per==='y' ? e.amount/12 : e.amount; }
 function exIncluded(gid){ return !S.exOff.includes(gid); }
 function exGroupSum(gid, useGoal){ return S.expenses.filter(e=>e.group===gid).reduce((a,e)=>a + (useGoal && e.goal!=null ? exMonthly({amount:e.goal,per:e.per}) : exMonthly(e)), 0); }
+function feeRate(){ return S.settings.payMode==='cash' ? 0 : S.settings.fee; }
 function fixedTotal(){ return EX_IDS.reduce((a,g)=> a + (exIncluded(g) ? exGroupSum(g) : 0), 0); }
 function rentMonthly(){ return exIncluded('rent') ? exGroupSum('rent') : 0; }
 function roundUnit(){ return [10,50,100,500,1000].includes(S.settings.round) ? S.settings.round : 100; }
@@ -196,8 +197,8 @@ function strOf(n){ return n ? String(n) : ''; }
 
 // ================= 状態 =================
 function defaultState(){
-return { settings:{hourly:0, round:100, hours:0, fee:0, place:0, tax:'none', taxRate:10, margin:30, costMax:20},
-materials:[], menus:[], coupons:[], idc:1, trial:{cost:0, minutes:0}, expenses:[], exOff:['mat'] };
+return { settings:{hourly:0, round:100, hours:0, payMode:'card', fee:0, place:0, tax:'none', taxRate:10, margin:30, costMax:20},
+materials:[], menus:[], coupons:[], idc:1, trial:{cost:0, minutes:0}, expenses:[], exOff:['mat'], hideGuide:false };
 }
 let S = defaultState();
 let tab = 'result';
@@ -230,7 +231,7 @@ const matMap = new Map(S.materials.map(x=>[x.id,x]));
 let matRaw = 0;
 menu.lines.forEach(l=>{ const m = matMap.get(l.matId); if(m) matRaw += l.amount * unitCost(m); });
 const k = s.tax==='excl' ? 1 + s.taxRate/100 : 1;
-const f1 = s.fee/100, f2 = s.place/100, f = f1 + f2;
+const f1 = feeRate()/100, f2 = s.place/100, f = f1 + f2;
 const net = Math.round(price / k);
 const mat = Math.round(matRaw);
 const other = Math.round(menu.other);
@@ -295,7 +296,7 @@ const clamp = (x,a,b)=> Math.min(Math.max(x,a),b);
 const st = d.settings && typeof d.settings==='object' ? d.settings : {};
 const settings = {
 hourly: parseNum(st.hourly), round: [10,50,100,500,1000].includes(parseNum(st.round)) ? parseNum(st.round) : 100, hours: clamp(parseNum(st.hours),0,744),
-fee: clamp(parseNum(st.fee),0,100), place: clamp(parseNum(st.place),0,100),
+payMode: st.payMode==='cash' ? 'cash' : 'card', fee: clamp(parseNum(st.fee),0,100), place: clamp(parseNum(st.place),0,100),
 tax: st.tax==='excl' ? 'excl' : 'none',
 taxRate: clamp(parseNum(st.taxRate)||10,0,100),
 margin: clamp(st.margin==null ? 30 : parseNum(st.margin),0,95),
@@ -348,7 +349,7 @@ let maxId = 0; ids.forEach(i=>{ if(i>maxId) maxId=i; }); expenses.forEach(e=>{ i
 const idc = Math.max(maxId+1, Number.isInteger(d.idc) ? d.idc : 1);
 const tr = d.trial && typeof d.trial==='object' ? d.trial : {};
 const trial = {cost:parseNum(tr.cost), minutes:clamp(parseNum(tr.minutes),0,1440)};
-return {settings, materials, menus, coupons, idc, trial, expenses, exOff};
+return {settings, materials, menus, coupons, idc, trial, expenses, exOff, hideGuide: d.hideGuide===true};
 }
 function hasData(){ return S.materials.length || S.menus.length || S.coupons.length; }
 
@@ -377,29 +378,44 @@ return `<div class="kv${strong?' strong':''}"><span class="k">${label}</span><sp
 }
 function signCls(n){ return n<0 ? 'neg' : (n>0 ? 'pos' : ''); }
 
+// ================= はじめかたガイド =================
+function guideSteps(){
+const s = S.settings;
+return [
+{t:'tab', tab:'set', title:'1. 設定: 自分の目標時給と、月の施術可能時間', ex:'例：目標時給 2,000円 / 月の施術可能時間 80時間(週4日 × 1日5時間)。現金払いだけなら、決済手数料は入力不要です。', done: s.hourly>0 && s.hours>0},
+{tab:'exp', title:'2. 出費: 毎月かかる固定費', ex:'例：家賃 60,000円・駐車場 10,000円・水道光熱費 40,000円(月額)。', done: S.expenses.some(e=>e.amount>0 && exIncluded(e.group))},
+{tab:'mat', title:'3. 材料: 購入金額と容量', ex:'例：ベースジェル 12,800円 / 25g。「よく使う材料」のボタンで追加できます。', done: S.materials.some(m=>m.price>0 && m.qty>0)},
+{tab:'menu', title:'4. メニュー: 価格・時間・使う材料', ex:'例：ワンカラー 5,500円・90分。ベースジェル0.25g + カラージェル0.5g + トップジェル0.4g にチェック。', done: S.menus.some(m=>m.price>0 && m.minutes>0 && m.lines.length>0)},
+{tab:'price', title:'5. 価格: 近隣の相場と比べる', ex:'例：近隣サロンの同じメニューの価格を入れて、利益と必要件数を見る。', done: S.menus.some(m=>m.market>0)}
+];
+}
+function guideHtml(){
+const st = guideSteps();
+const done = st.filter(x=>x.done).length;
+if(S.hideGuide || done===st.length) return '';
+return `<div class="card"><h2>はじめかた(${done}/${st.length})</h2>
+<p class="hint" style="margin:0 0 10px;">上から順に、ご自身の数字を入れると、メニューごとの利益と、必要な価格が出ます。例の数字は、ネイルサロンの価格の一例です。</p>
+${st.map(x=>`<div class="line" style="align-items:flex-start;">
+<div style="flex:1 1 100%;font-size:14px;font-weight:700;">${x.done?'✅ ':'⬜ '}${esc(x.title)}</div>
+<div style="flex:1 1 100%;font-size:12.5px;color:var(--soft);">${esc(x.ex)}</div>
+<button class="btn secondary small" data-act="goTab" data-t="${x.tab}">${x.done?'見直す':'この画面で入力する'}</button>
+</div>`).join('')}
+<div class="rowActions"><button class="btn ghost small" data-act="sample">サンプル(価格の例)を入れて試す</button><button class="btn ghost small" data-act="hideGuide">ガイドを閉じる</button></div></div>`;
+}
 // ================= 画面:結果 =================
 function renderResult(){
 const s = S.settings;
+const guide = guideHtml();
 if(!S.menus.length){
-return `<div class="card">
-<h2>はじめに</h2>
-<p style="font-size:13.5px;margin:0 0 8px;">メニューごとの「材料費・手数料・自分の時間」を合計して、いくら残るか(利益)と、いくらにすれば足りるかを計算します。</p>
-<ol class="steps">
-<li>「設定」で、自分の目標時給・月の固定費・手数料などを入れる</li>
-<li>「材料」で、ジェルなどの仕入れ値と容量を入れる</li>
-<li>「メニュー」で、価格・所要時間・使う材料の量を入れる</li>
-<li>この「結果」の画面で、メニューを比べる</li>
-</ol>
-<button class="btn secondary full" data-act="sample">サンプルを入れて試す</button>
-<p class="hint">※サンプルの数字は説明用です。実際の仕入れ値・使用量・時間に書き換えてください。</p>
-</div>`;
+return guide + `<div class="card"><button class="btn secondary full" data-act="sample">サンプルを入れて試す</button>
+<p class="hint">サンプルには、ネイルサロンの価格の例(ワンカラー5,500円・フット8,000円・耳つぼ6個3,300円など)が入ります。内容を見て、ご自身の数字に書き換えてください。</p></div>`;
 }
-let h = '';
+let h = guide;
 const warns = [];
 if(s.hourly<=0) warns.push('「設定」の自分の目標時給が未入力のため、自分の人件費は0円で計算されています。');
 if(fixedTotal()>0 && s.hours<=0) warns.push('月の施術可能時間が未入力のため、固定費を配分できていません。');
 if(fixedTotal()<=0) warns.push('「出費」タブの固定費が未入力のため、固定費は0円で計算されています。');
-if(s.fee+s.place>=100) warns.push('手数料と場所代の合計が100%以上です。「設定」を確認してください。');
+if(feeRate()+s.place>=100) warns.push('手数料と場所代の合計が100%以上です。「設定」を確認してください。');
 const noTime = S.menus.filter(m=>m.minutes<=0).length;
 if(noTime) warns.push(`所要時間が未入力のメニューが${noTime}件あります(人件費・固定費が0円になります)。`);
 const hiCost = S.menus.filter(m=>{ const r = calcMenu(m); return r.costRate!=null && r.costRate*100 > s.costMax + 1e-9; });
@@ -454,7 +470,7 @@ ${kv('販売価格(税込)', yen(m.price))}
 ${s.tax==='excl' ? kv('税抜売上', yen(r.net)) : ''}
 ${kv('材料費', '-'+yen(r.mat).replace(/^-/,''))}
 ${r.other>0 ? kv('その他の変動費', '-'+yen(r.other).replace(/^-/,'')) : ''}
-${kv('決済手数料('+fmtN(s.fee)+'%)', '-'+yen(r.feeCard).replace(/^-/,''))}
+${feeRate()>0 ? kv('決済手数料('+fmtN(feeRate())+'%)', '-'+yen(r.feeCard).replace(/^-/,'')) : ''}
 ${s.place>0 ? kv('場所代・歩合('+fmtN(s.place)+'%)', '-'+yen(r.feePlace).replace(/^-/,'')) : ''}
 ${kv('粗利', yen(r.gross), signCls(r.gross), true)}
 ${kv('自分の人件費('+yen(s.hourly)+'×'+fmtN(m.minutes)+'分)', '-'+yen(r.labor).replace(/^-/,''))}
@@ -499,8 +515,8 @@ S.menus.forEach(m=>{
 h += `<div class="card" data-card="menu:${m.id}">
 <label class="f"><span class="l">メニュー名</span>${textInput('menu',m.id,'name',m.name,'例：ワンカラー')}</label>
 <div class="grid2">
-<label class="f"><span class="l">販売価格(税込・円)</span>${numInput('menu',m.id,'price',m.price,'例：6000')}</label>
-<label class="f"><span class="l">所要時間(分)</span>${numInput('menu',m.id,'minutes',m.minutes,'例：60')}</label>
+<label class="f"><span class="l">販売価格(税込・円)</span>${numInput('menu',m.id,'price',m.price,'例：5500')}</label>
+<label class="f"><span class="l">所要時間(分)</span>${numInput('menu',m.id,'minutes',m.minutes,'例：90')}</label>
 </div>
 <h3>使う材料を選ぶ(1回分)</h3>
 <p class="hint" style="margin:0 0 8px;">使うものにチェックを入れて、使う量を入れます。金額は、材料タブの購入金額と容量から自動で計算します。</p>`;
@@ -558,7 +574,7 @@ S.materials.forEach(m=>{
 h += `<div class="card" data-card="mat:${m.id}">
 <label class="f"><span class="l">材料名</span>${textInput('mat',m.id,'name',m.name,'例：ベースジェル')}</label>
 <div class="grid2">
-<label class="f"><span class="l">購入金額(円・税込)</span>${numInput('mat',m.id,'price',m.price,'例：2200')}</label>
+<label class="f"><span class="l">購入金額(円・税込)</span>${numInput('mat',m.id,'price',m.price,'例：12800')}</label>
 <label class="f"><span class="l">容量(数量)</span>${numInput('mat',m.id,'qty',m.qty,'例：25')}</label>
 </div>
 <label class="f"><span class="l">単位</span>${textInput('mat',m.id,'unit',m.unit,'例：g ・ ml ・ 枚 ・ 個',10)}</label>
@@ -687,7 +703,7 @@ function priceBodyHtml(){
   if(s.hours<=0) warns.push('「設定」の月の施術可能時間が未入力のため、賃料を各メニューに配分できません(賃料0円で計算されます)。');
   if(rentMonthly()<=0) warns.push('「出費」タブの「家賃・共益費」が未入力です(賃料0円で計算されます)。');
   if(s.hourly<=0) warns.push('「設定」の自分の目標時給が未入力です(人件費0円で計算されます)。');
-  if(s.fee+s.place>=100) warns.push('手数料と場所代の合計が100%以上のため、価格を計算できません。');
+  if(feeRate()+s.place>=100) warns.push('手数料と場所代の合計が100%以上のため、価格を計算できません。');
   if(warns.length) h += `<div class="msg warn">${warns.map(w=>'・'+esc(w)).join('<br>')}</div>`;
   const rentPH = s.hours>0 ? rentMonthly()/s.hours : 0;
   h += `<div class="card"><h2>1時間あたりのコスト</h2>
@@ -816,6 +832,7 @@ return h;
 // ================= 画面:設定 =================
 function renderSet(){
 const s = S.settings;
+const s_pay_cash = S.settings.payMode==='cash' ? ' checked' : '', s_pay_card = S.settings.payMode==='cash' ? '' : ' checked';
 const sf = (field, val, ph, unit)=> `<div class="sfx">${numInput('set',0,field,val,ph)}<span>${unit}</span></div>`;
 return `<div class="card"><h2>基本の設定</h2>
 <label class="f"><span class="l">自分の目標時給</span>${sf('hourly',s.hourly,'例：2000','円/時間')}
@@ -823,8 +840,13 @@ return `<div class="card"><h2>基本の設定</h2>
 <p class="hint" style="margin:0 0 12px;">賃料などの毎月の固定費は、「出費」タブに項目ごとに入力します。</p>
 <label class="f"><span class="l">月の施術可能時間</span>${sf('hours',s.hours,'例：80','時間/月')}
 <p class="hint">「出費」タブの固定費を時間に割り振る分母です。実際に予約を受けられる時間で入れてください(例：週20時間×4週=80時間)。</p></label>
-<label class="f"><span class="l">決済手数料</span>${sf('fee',s.fee,'例：2.5','%')}
-<p class="hint">Squareの対面決済は2.5%〜です(年間決済額3,000万円未満・主要カードブランドの場合。2026年11月時点のSquare公式サイトの記載)。条件により率が変わります。現金払いも含めた平均の率を入れてください。</p></label>
+<div class="f"><span class="l">お客様のお支払い方法</span>
+<div class="radioRow">
+<label><input type="radio" name="pay" value="cash" data-k="set" data-f="payMode"${s_pay_cash}>現金のみ</label>
+<label><input type="radio" name="pay" value="card" data-k="set" data-f="payMode"${s_pay_card}>クレジットカードなども使う</label>
+</div></div>
+<div id="feeRow" class="${s.payMode==='cash'?'hidden':''}"><label class="f"><span class="l">決済手数料</span>${sf('fee',s.fee,'例：2.5','%')}
+<p class="hint">Squareの対面決済は2.5%〜です(年間決済額3,000万円未満・主要カードブランドの場合。2026年11月時点のSquare公式サイトの記載)。条件や、使う決済サービスによって率が変わります。現金払いも含めた平均の率を入れてください。</p></label></div>
 <label class="f"><span class="l">場所代・提携先への歩合</span>${sf('place',s.place,'例：0','%')}
 <p class="hint">提携先などに売上の何%を支払うかです。ない場合は0。計算では、税込の売上に対する割合として扱います。</p></label>
 <label class="f"><span class="l">目標利益率</span>${sf('margin',s.margin,'例：30','%')}
@@ -849,6 +871,7 @@ return `<div class="card"><h2>基本の設定</h2>
 <input type="file" id="importFile" accept=".json,application/json" class="hidden">
 <div class="grid2" style="margin-top:10px;">
 <button class="btn ghost" data-act="sample">サンプルを入れる</button>
+<button class="btn ghost" data-act="showGuide">はじめかたガイドを表示</button>
 <button class="btn dangerOutline" data-act="clearAll">全データを消去</button>
 </div>
 </div>`;
@@ -900,6 +923,9 @@ const s = S.settings;
 if(f==='tax'){
 s.tax = el.value==='excl' ? 'excl' : 'none';
 const row = $('#taxRateRow'); if(row) row.classList.toggle('hidden', s.tax!=='excl');
+} else if(f==='payMode'){
+s.payMode = el.value==='cash' ? 'cash' : 'card';
+const row = $('#feeRow'); if(row) row.classList.toggle('hidden', s.payMode==='cash');
 } else if(f==='hours'){ s.hours = Math.min(v,744); }
 else if(f==='fee' || f==='place'){ s[f] = Math.min(v,100); }
 else if(f==='margin'){ s.margin = Math.min(v,95); }
@@ -969,31 +995,29 @@ el.value = n ? String(n) : '';
 
 // ================= 操作 =================
 function sampleData(){
+// ネイルサロンの価格の例(購入者が自分の数字に書き換える前提のサンプル)
 const d = defaultState();
-d.settings = {hourly:2000, round:100, hours:80, fee:2.5, place:0, tax:'none', taxRate:10, margin:30, costMax:20};
+d.settings = {hourly:2000, round:100, hours:80, payMode:'card', fee:2.5, place:0, tax:'none', taxRate:10, margin:30, costMax:20};
 d.materials = [
-{id:1,name:'ベースジェル',price:2200,qty:25,unit:'g'},
-{id:2,name:'カラージェル',price:1650,qty:10,unit:'g'},
-{id:3,name:'トップジェル',price:2200,qty:25,unit:'g'},
-{id:4,name:'ファイル・バッファー',price:600,qty:50,unit:'枚'},
-{id:5,name:'コットン・ワイプ',price:400,qty:200,unit:'枚'},
-{id:6,name:'キューティクルオイル',price:1100,qty:10,unit:'ml'},
-{id:7,name:'アートパーツ',price:1000,qty:10,unit:'回分'}];
-d.materials.forEach(m=>{ m.guide = 0; m.samples = []; m.records = []; });
+{id:1,name:'ベースジェル',price:12800,qty:25,unit:'g',guide:0.25},
+{id:2,name:'カラージェル',price:3200,qty:4,unit:'g',guide:0.5},
+{id:3,name:'トップジェル',price:12800,qty:25,unit:'g',guide:0.4},
+{id:4,name:'プレップ',price:2400,qty:1000,unit:'ml',guide:0.8},
+{id:5,name:'クリーナー',price:2400,qty:1000,unit:'ml',guide:1},
+{id:6,name:'耳つぼシール(貴宝石パワーシール小)',price:2240,qty:32,unit:'個',guide:0}];
+d.materials.forEach(m=>{ m.samples = []; m.records = []; });
+const gel = [{matId:1,amount:0.25},{matId:2,amount:0.5},{matId:3,amount:0.4},{matId:4,amount:0.8},{matId:5,amount:1}];
 d.menus = [
-{id:8,name:'ワンカラー',price:6000,market:5500,minutes:60,other:0,count:20,lines:[{matId:1,amount:0.3},{matId:2,amount:0.4},{matId:3,amount:0.3},{matId:4,amount:2},{matId:5,amount:10},{matId:6,amount:0.1}]},
-{id:9,name:'ネイルアート(フルオーダー)',price:9000,market:9500,minutes:120,other:300,count:5,lines:[{matId:1,amount:0.3},{matId:2,amount:0.8},{matId:3,amount:0.4},{matId:4,amount:2},{matId:5,amount:15},{matId:6,amount:0.1},{matId:7,amount:1}]},
-{id:10,name:'ケアのみ',price:4000,market:3500,minutes:45,other:0,count:10,lines:[{matId:4,amount:2},{matId:5,amount:8},{matId:6,amount:0.3}]}];
-d.coupons = [{id:11,name:'ケア4回券',menuId:10,sessions:4,price:14000}];
+{id:7,name:'ワンカラー(ハンド)',price:5500,market:0,minutes:90,other:0,count:34,lines:gel.map(x=>({...x}))},
+{id:8,name:'フット',price:8000,market:0,minutes:90,other:0,count:17,lines:gel.map(x=>({...x}))},
+{id:9,name:'耳つぼ6個',price:3300,market:0,minutes:30,other:0,count:52,lines:[{matId:6,amount:6}]}];
+d.coupons = [];
 d.expenses = [
-{id:12,group:'rent',name:'家賃',amount:20000,per:'m',goal:null},
-{id:13,group:'comm',name:'Wi-Fi回線',amount:3000,per:'m',goal:2000},
-{id:14,group:'ad',name:'予約ポータル掲載料',amount:3000,per:'m',goal:null},
-{id:15,group:'ins',name:'損害賠償責任保険',amount:24000,per:'y',goal:null},
-{id:16,group:'mat',name:'ジェル類(ベース・トップ・カラー)',amount:12000,per:'m',goal:null},
-{id:17,group:'tool',name:'会計ソフト',amount:2000,per:'m',goal:null}];
+{id:10,group:'rent',name:'家賃',amount:60000,per:'m',goal:null},
+{id:11,group:'rent',name:'駐車場',amount:10000,per:'m',goal:null},
+{id:12,group:'util',name:'水道光熱費(電気・水道・ガス)',amount:40000,per:'m',goal:null}];
 d.exOff = ['mat'];
-d.idc = 18;
+d.idc = 13;
 return d;
 }
 function nextId(){ return S.idc++; }
@@ -1052,6 +1076,8 @@ const e = S.expenses.find(x=>x.id===id); if(!e) return;
 S.expenses = S.expenses.filter(x=>x.id!==id); touch(); rerender();
 }
 else if(act==='goTab'){ setTab(b.dataset.t); }
+else if(act==='hideGuide'){ S.hideGuide = true; touch(); rerender(); }
+else if(act==='showGuide'){ S.hideGuide = false; touch(); setTab('result'); }
 else if(act==='addRec'){
 const m = S.materials.find(x=>x.id===id); if(!m||m.records.length>=50) return;
 m.records.push({start:'', end:todayStr(), count:0, bottles:1}); touch(); rerender();
