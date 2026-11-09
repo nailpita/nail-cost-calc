@@ -95,6 +95,23 @@ footer{font-size:11.5px;color:var(--soft);margin-top:18px;text-align:center;}
 .radioRow label{display:flex;align-items:center;gap:6px;}
 .radioRow input{width:auto;}
 
+/* 棚卸 */
+.stkItem{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;}
+.stkItem .nm{font-weight:700;font-size:15px;}
+.stkItem .pr{font-size:12px;color:var(--soft);}
+.stkRow{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;}
+.stkRow .lb{flex:0 0 64px;font-size:13px;color:var(--soft);}
+.stepper{display:flex;align-items:center;gap:6px;}
+.stepper button{width:44px;height:44px;border-radius:10px;border:1.5px solid var(--accent);background:var(--surface);color:var(--accent-ink);font-size:20px;font-weight:700;font-family:inherit;cursor:pointer;}
+.stepper input{width:64px;text-align:center;font-size:18px;font-weight:700;padding:8px 4px;}
+.frac button{min-width:52px;height:44px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;}
+.stkSub{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:10px;padding-top:8px;border-top:1px dashed var(--line);font-size:13.5px;}
+.stkBar{position:sticky;bottom:0;z-index:6;background:var(--accent-ink);color:#fff;border-radius:14px 14px 0 0;padding:12px 16px;margin:0 -2px;display:flex;justify-content:space-between;align-items:center;gap:10px;box-shadow:0 -4px 16px rgba(0,0,0,.12);}
+.stkBar .t{font-size:12px;opacity:.85;}
+.stkBar .v{font-size:20px;font-weight:700;}
+.stkList{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);}
+.stkList:last-child{border-bottom:none;}
+input[readonly]{background:var(--surface);color:var(--soft);}
 .modalBack{position:fixed;inset:0;background:rgba(43,35,32,.55);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;}
 .modalBox{background:var(--surface);border-radius:16px;padding:20px;max-width:420px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.25);}
 .modalBox h2{font-size:17px;margin:0 0 8px;}
@@ -115,6 +132,7 @@ footer{font-size:11.5px;color:var(--soft);margin-top:18px;text-align:center;}
 <button data-tab="result">結果</button>
 <button data-tab="menu">メニュー</button>
 <button data-tab="mat">材料</button>
+<button data-tab="stock">棚卸</button>
 <button data-tab="exp">出費</button>
 <button data-tab="price">価格</button>
 <button data-tab="coupon">回数券</button>
@@ -198,10 +216,11 @@ function strOf(n){ return n ? String(n) : ''; }
 // ================= 状態 =================
 function defaultState(){
 return { settings:{hourly:0, round:100, hours:0, payMode:'card', fee:0, place:0, tax:'none', taxRate:10, margin:30, costMax:20},
-materials:[], menus:[], coupons:[], idc:1, trial:{cost:0, minutes:0}, expenses:[], exOff:['mat'], hideGuide:false };
+materials:[], menus:[], coupons:[], idc:1, trial:{cost:0, minutes:0}, expenses:[], exOff:['mat'], hideGuide:false, stocks:[] };
 }
 let S = defaultState();
 let tab = 'result';
+let stkSel = null; // 開いている棚卸のID(画面だけの状態)
 let storageOK = true;
 let dirty = false;
 let saveTimer = null;
@@ -345,13 +364,22 @@ const base = Math.max(0, ...Array.from(ids)) + 1;
 if(r0>0){ expenses.push({id:base+mig, group:'rent', name:'賃料(以前の入力)', amount:r0, per:'m', goal:null}); mig++; }
 if(f0>0){ expenses.push({id:base+mig, group:'otherfix', name:'その他の固定費(以前の入力)', amount:f0, per:'m', goal:null}); mig++; }
 }
+const stocks = [];
+(Array.isArray(d.stocks)?d.stocks:[]).slice(0,200).forEach(t=>{
+if(t && okId(t.id) && /^\d{4}-\d{2}-\d{2}$/.test(t.date)){
+ids.add(t.id);
+const seen = new Set();
+const items = (Array.isArray(t.items)?t.items:[]).slice(0,500).filter(it=>it && Number.isInteger(it.matId) && !seen.has(it.matId) && seen.add(it.matId)).map(it=>({matId:it.matId, sealed:clamp(Math.round(parseNum(it.sealed)),0,9999), open:clamp(Math.round(parseNum(it.open)*100)/100,0,999), name:str(it.name), price:parseNum(it.price), qty:parseNum(it.qty), unit:str(it.unit,10)}));
+stocks.push({id:t.id, date:t.date, locked:t.locked===true, items});
+}
+});
 let maxId = 0; ids.forEach(i=>{ if(i>maxId) maxId=i; }); expenses.forEach(e=>{ if(e.id>maxId) maxId=e.id; });
 const idc = Math.max(maxId+1, Number.isInteger(d.idc) ? d.idc : 1);
 const tr = d.trial && typeof d.trial==='object' ? d.trial : {};
 const trial = {cost:parseNum(tr.cost), minutes:clamp(parseNum(tr.minutes),0,1440)};
-return {settings, materials, menus, coupons, idc, trial, expenses, exOff, hideGuide: d.hideGuide===true};
+return {settings, materials, menus, coupons, idc, trial, expenses, exOff, hideGuide: d.hideGuide===true, stocks};
 }
-function hasData(){ return S.materials.length || S.menus.length || S.coupons.length; }
+function hasData(){ return S.materials.length || S.menus.length || S.coupons.length || S.stocks.length; }
 
 // ================= 確認ダイアログ =================
 let modalOk = null;
@@ -602,6 +630,124 @@ ${m.samples.length ? `<p class="hint">実測平均 <b>${fmtN(Math.round(matAvg(m
 });
 h += `<button class="btn full" data-act="addMat">＋ 材料を追加</button>`;
 return h;
+}
+
+
+// ================= 画面:棚卸 =================
+// 金額 = (未開封の本数 + 使いかけの本数) × 1本(1パック)あたりの購入金額(最後に買った金額)
+function stkRows(t){
+if(t.locked) return t.items.map(it=>({matId:it.matId, name:it.name, price:it.price, qty:it.qty, unit:it.unit, sealed:it.sealed, open:it.open, gone:false}));
+return S.materials.map(m=>{ const it = t.items.find(x=>x.matId===m.id) || {sealed:0, open:0}; return {matId:m.id, name:m.name, price:m.price, qty:m.qty, unit:m.unit, sealed:it.sealed, open:it.open}; });
+}
+function stkCount(r){ return (r.sealed||0) + (r.open||0); }
+function stkValue(t){ return stkRows(t).reduce((a,r)=> a + stkCount(r)*(r.price||0), 0); }
+function stkPrev(t){ return S.stocks.filter(x=>x.id!==t.id && x.date < t.date).sort((a,b)=> a.date<b.date?1:-1)[0] || null; }
+function stkItem(t, matId){ let it = t.items.find(x=>x.matId===matId); if(!it){ it = {matId, sealed:0, open:0, name:'', price:0, qty:0, unit:''}; t.items.push(it); } return it; }
+function fmtB(n){ return fmtN(Math.round(n*100)/100); }
+function dateJP(d){ const [y,m,dd] = d.split('-'); return `${+y}年${+m}月${+dd}日`; }
+function isYearEnd(d){ return /-12-31$/.test(d); }
+function stkBarHtml(t){
+const rows = stkRows(t);
+const n = rows.reduce((a,r)=>a+stkCount(r),0);
+return `<div><div class="t">${dateJP(t.date)}の棚卸 合計${t.locked?'(確定)':''}</div><div class="v">${yen(stkValue(t))}</div></div><div class="t" style="text-align:right;">在庫 ${fmtB(n)}本・個<br>${rows.filter(r=>stkCount(r)>0).length}/${rows.length}品目</div>`;
+}
+function stkSubHtml(t, r){
+const prev = stkPrev(t);
+let diff = '';
+if(prev){ const pr = stkRows(prev).find(x=>x.matId===r.matId); if(pr){ const d = stkCount(r)-stkCount(pr); diff = `前回 ${fmtB(stkCount(pr))} → ${d===0?'変化なし':(d>0?'+':'')+(d===0?'':fmtB(d))}`; } }
+const c = stkCount(r);
+const low = c===0 ? '<span class="chip bad">在庫なし</span>' : (r.sealed===0 && r.open<=0.5 ? '<span class="chip mid">残りわずか</span>' : '');
+return `<span>${low} <span class="note">${diff}</span></span><b>${yen(c*(r.price||0))}</b>`;
+}
+function stkShortHtml(t){
+const short = stkRows(t).filter(r=>stkCount(r)===0 || (r.sealed===0 && r.open<=0.5));
+return short.length ? `<div class="msg warn">0本・残りわずか：${short.map(r=>esc(r.name||'(名前なし)')).join('、')}</div>` : '';
+}
+function stkCardHtml(t, r){
+const ro = t.locked ? 'readonly' : '';
+const sid = t.id, mid = r.matId;
+return `<div class="stkItem" data-card="stk:${mid}">
+<div class="nm">${esc(r.name||'(名前なし)')}</div>
+<div class="pr">${r.price>0 ? `1本(1パック) ${yen(r.price)}${r.qty>0?` ／ ${fmtN(r.qty)}${esc(r.unit||'')}`:''}` : '<span class="neg">「材料」タブで購入金額を入れてください</span>'}</div>
+<div class="stkRow"><span class="lb">未開封</span><div class="stepper">
+${t.locked?'':`<button data-act="stkStep" data-id="${sid}" data-mat="${mid}" data-v="-1" aria-label="未開封を1減らす">−</button>`}
+<input type="text" inputmode="numeric" autocomplete="off" data-k="stki" data-id="${sid}" data-mat="${mid}" data-f="sealed" data-num="1" value="${esc(strOf(r.sealed))}" placeholder="0" ${ro} aria-label="未開封の本数">
+${t.locked?'':`<button data-act="stkStep" data-id="${sid}" data-mat="${mid}" data-v="1" aria-label="未開封を1増やす">＋</button>`}
+</div><span class="note">本・個</span></div>
+<div class="stkRow"><span class="lb">使いかけ</span>
+<input type="text" inputmode="decimal" autocomplete="off" style="width:72px;text-align:center;font-weight:700;" data-k="stki" data-id="${sid}" data-mat="${mid}" data-f="open" data-num="1" value="${esc(strOf(r.open))}" placeholder="0" ${ro} aria-label="使いかけの本数"><span class="note">本ぶん</span></div>
+${t.locked?'':`<div class="stkRow frac" style="margin-top:6px;"><span class="lb"></span>
+<button data-act="stkOpen" data-id="${sid}" data-mat="${mid}" data-v="0.25">＋¼</button>
+<button data-act="stkOpen" data-id="${sid}" data-mat="${mid}" data-v="0.5">＋½</button>
+<button data-act="stkOpen" data-id="${sid}" data-mat="${mid}" data-v="0.75">＋¾</button>
+<button data-act="stkOpen" data-id="${sid}" data-mat="${mid}" data-v="0">0に戻す</button></div>`}
+<div class="stkSub" data-live="stki:${sid}:${mid}">${stkSubHtml(t,r)}</div>
+</div>`;
+}
+function stkTaxHtml(){
+const ends = S.stocks.filter(t=>isYearEnd(t.date)).sort((a,b)=> a.date<b.date?1:-1);
+let h = `<div class="card"><h2>確定申告での使い方</h2>`;
+if(ends.length){
+h += ends.slice(0,3).map(t=>kv(`${t.date.slice(0,4)}年末(12月31日)の棚卸高${t.locked?'':'<span class="note">　入力中</span>'}`, yen(stkValue(t)), '', true)).join('');
+h += `<p class="hint">その年の決算書では「期末商品(製品)棚卸高」、翌年の決算書では「期首商品(製品)棚卸高」に使う金額です。</p>`;
+} else {
+h += `<p class="hint" style="margin:0 0 8px;">12月31日の日付で棚卸をすると、ここに年末の棚卸金額が出ます。</p>`;
+}
+h += `<details><summary style="cursor:pointer;font-size:13px;color:var(--accent-ink);font-weight:600;">くわしい説明を読む</summary>
+<ul class="steps" style="margin-top:8px;">
+<li>年末に残っている材料の金額は、その年の経費から差し引きます。決算書では <b>売上原価 = 期首の棚卸高 ＋ その年の仕入 − 期末の棚卸高</b> で計算します。</li>
+<li>このアプリの金額は「最後に買ったときの金額 × 残っている量」です(最終仕入原価法)。評価方法を税務署に届け出ていない個人事業主は、通常この方法になります。</li>
+<li>毎年ほぼ同じ量を買って続けて使う消耗品は、買った年の経費にし続けていれば、棚卸に入れない扱いも認められています(所得税基本通達37-30の3)。どちらにするかは、税理士または税務署に確認してください。</li>
+<li>確定した棚卸は、あとから材料の金額を変えても変わりません。12月31日の棚卸は「確定する」を押しておくと安心です。</li>
+</ul></details></div>`;
+return h;
+}
+function renderStock(){
+let h = '';
+const t = S.stocks.find(x=>x.id===stkSel);
+if(t){
+h += `<div class="card">
+<div class="rowActions" style="margin:0 0 10px;"><button class="btn ghost small" data-act="stkClose">← 棚卸の一覧へ</button></div>
+<label class="f"><span class="l">棚卸の日付</span><input type="date" data-k="stk" data-id="${t.id}" data-f="date" value="${esc(t.date)}" ${t.locked?'readonly':''}></label>
+${t.locked ? '<div class="msg ok" style="margin:0;">確定済みです。金額は確定したときの購入金額で固定されています。</div>' : '<p class="hint" style="margin:0;">棚やワゴンの前で、上から順に数を入れていきます。未開封は＋−、使いかけは「＋½」などのボタンで足していきます。</p>'}
+</div>`;
+const rows = stkRows(t);
+if(!rows.length) h += `<div class="empty">材料がまだありません。<br><button class="btn secondary small" style="margin-top:10px;" data-act="goTab" data-t="mat">材料を登録する</button></div>`;
+if(rows.length && !t.locked) h += `<div data-live="stkshort:${t.id}">${stkShortHtml(t)}</div>`;
+h += rows.map(r=>stkCardHtml(t,r)).join('');
+h += `<div class="card" style="margin-top:4px;"><div class="grid2">
+${t.locked ? `<button class="btn secondary" data-act="stkUnlock" data-id="${t.id}">確定を解除</button>` : `<button class="btn" data-act="stkLock" data-id="${t.id}">この棚卸を確定する</button>`}
+<button class="btn secondary" data-act="stkCsv" data-id="${t.id}">CSVで保存</button>
+</div>
+<div style="margin-top:10px;"><button class="btn dangerOutline small" data-act="stkDel" data-id="${t.id}">この棚卸を削除</button></div></div>`;
+h += `<div class="stkBar" data-live="stkbar:${t.id}">${stkBarHtml(t)}</div>`;
+return h;
+}
+const y = new Date().getFullYear(), mo = new Date().getMonth()+1;
+const yeDate = `${mo<=3 ? y-1 : y}-12-31`;
+h += `<div class="card"><h2>棚卸</h2>
+<p class="hint" style="margin:0 0 12px;">「材料」タブに入れた材料が、そのまま棚卸の一覧になります。数を入れると、残っている材料の金額が自動で出ます。月末の在庫チェックにも、年末(12月31日)の確定申告にも使えます。</p>
+<button class="btn full" data-act="stkNew" data-d="${todayStr()}">今日の日付で棚卸をはじめる</button>
+<button class="btn secondary full" style="margin-top:8px;" data-act="stkNew" data-d="${yeDate}">${yeDate.slice(0,4)}年12月31日の棚卸をはじめる</button>
+${S.materials.length?'':'<p class="hint">先に「材料」タブで材料を登録してください。</p>'}
+</div>`;
+const list = S.stocks.slice().sort((a,b)=> a.date<b.date?1:-1);
+h += `<div class="card"><h2>これまでの棚卸</h2>`;
+h += list.length ? list.map(t=>`<div class="stkList"><div><b>${dateJP(t.date)}</b> ${t.locked?'<span class="chip good">確定</span>':'<span class="chip mid">入力中</span>'}<div class="note">${yen(stkValue(t))}</div></div><button class="btn secondary small" data-act="stkOpenT" data-id="${t.id}">開く</button></div>`).join('') : '<div class="empty" style="padding:10px;">まだ棚卸の記録はありません。</div>';
+h += `</div>`;
+h += stkTaxHtml();
+return h;
+}
+function stkCsv(t){
+const q = v=> `"${String(v).replace(/"/g,'""')}"`;
+const lines = [['棚卸日','材料名','単位','容量','1本(1パック)の購入金額','未開封','使いかけ','合計(本・個)','金額'].map(q).join(',')];
+stkRows(t).forEach(r=>{ const c = stkCount(r); lines.push([t.date, r.name, r.unit, r.qty, r.price, r.sealed, r.open, fmtB(c), Math.round(c*(r.price||0))].map(q).join(',')); });
+lines.push([t.date,'合計','','','','','','',Math.round(stkValue(t))].map(q).join(','));
+const blob = new Blob(['﻿'+lines.join('\r\n')], {type:'text/csv'});
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a'); a.href = url; a.download = `棚卸_${t.date}.csv`;
+document.body.appendChild(a); a.click(); document.body.removeChild(a);
+setTimeout(()=>URL.revokeObjectURL(url), 1000);
 }
 
 
@@ -884,6 +1030,7 @@ const at=$('#tabs button.active'); if(at && at.scrollIntoView){ try{ at.scrollIn
 $('#view').innerHTML = tab==='result' ? renderResult()
 : tab==='menu' ? renderMenu()
 : tab==='mat' ? renderMat()
+: tab==='stock' ? renderStock()
 : tab==='exp' ? renderExp()
 : tab==='price' ? renderPrice()
 : tab==='coupon' ? renderCoupon()
@@ -891,7 +1038,7 @@ $('#view').innerHTML = tab==='result' ? renderResult()
 }
 function rerender(){ const y = window.scrollY; render(); window.scrollTo(0,y); }
 function setTab(t){ tab = t; msg('',''); render(); window.scrollTo(0,0); }
-$('#tabs').addEventListener('click', (e)=>{ const b = e.target.closest('button[data-tab]'); if(b) setTab(b.dataset.tab); });
+$('#tabs').addEventListener('click', (e)=>{ const b = e.target.closest('button[data-tab]'); if(b){ if(b.dataset.tab!=='stock' || tab==='stock') stkSel = null; setTab(b.dataset.tab); } });
 
 function refreshLive(){
 $$('[data-live]').forEach(el=>{
@@ -907,6 +1054,9 @@ else if(p[0]==='pick'){ const m=S.menus.find(x=>x.id===+p[1]); const l=m&&m.line
 else if(p[0]==='exsum'){ el.innerHTML = exSummaryHtml(); }
 else if(p[0]==='exg'){ el.innerHTML = exGroupHtml(p[1]); }
 else if(p[0]==='trial'){ el.innerHTML = trialHtml(); }
+else if(p[0]==='stkshort'){ const t=S.stocks.find(x=>x.id===+p[1]); if(t) el.innerHTML = stkShortHtml(t); }
+else if(p[0]==='stkbar'){ const t=S.stocks.find(x=>x.id===+p[1]); if(t) el.innerHTML = stkBarHtml(t); }
+else if(p[0]==='stki'){ const t=S.stocks.find(x=>x.id===+p[1]); const r=t&&stkRows(t).find(x=>x.matId===+p[2]); if(r) el.innerHTML = stkSubHtml(t,r); }
 });
 }
 
@@ -933,6 +1083,14 @@ else if(f==='costMax'){ s.costMax = v>0 ? Math.min(v,100) : 20; }
 else if(f==='round'){ s.round = [10,50,100,500,1000].includes(+el.value) ? +el.value : 100; }
 else if(f==='taxRate'){ s.taxRate = Math.min(v,100); }
 else if(f in s){ s[f] = v; }
+} else if(k==='stk'){
+const t = S.stocks.find(x=>x.id===id); if(!t || t.locked) return;
+if(f==='date' && /^\d{4}-\d{2}-\d{2}$/.test(el.value)){ t.date = el.value; }
+} else if(k==='stki'){
+const t = S.stocks.find(x=>x.id===id); if(!t || t.locked) return;
+const it = stkItem(t, +el.dataset.mat);
+if(f==='sealed') it.sealed = Math.min(Math.max(Math.round(v),0),9999);
+else it.open = Math.min(Math.max(Math.round(v*100)/100,0),999);
 } else if(k==='rec'){
 const m = S.materials.find(x=>x.id===id); const r = m && m.records[+el.dataset.i]; if(!r) return;
 if(f==='start'||f==='end') r[f] = /^\d{4}-\d{2}-\d{2}$/.test(el.value) ? el.value : '';
@@ -1075,7 +1233,43 @@ else if(act==='delEx'){
 const e = S.expenses.find(x=>x.id===id); if(!e) return;
 S.expenses = S.expenses.filter(x=>x.id!==id); touch(); rerender();
 }
-else if(act==='goTab'){ setTab(b.dataset.t); }
+else if(act==='goTab'){ stkSel = null; setTab(b.dataset.t); }
+else if(act==='stkNew'){
+if(!S.materials.length){ msg('warn','先に「材料」タブで材料を登録してください。'); window.scrollTo(0,0); return; }
+const d = /^\d{4}-\d{2}-\d{2}$/.test(b.dataset.d) ? b.dataset.d : todayStr();
+const ex = S.stocks.find(x=>x.date===d);
+if(ex){ stkSel = ex.id; msg('ok',`${dateJP(d)}の棚卸はすでにあるので、それを開きました。`); render(); window.scrollTo(0,0); return; }
+const t = {id:nextId(), date:d, locked:false, items:[]};
+const prev = stkPrev(t);
+S.stocks.push(t); stkSel = t.id; touch(); render(); window.scrollTo(0,0);
+msg('ok', prev ? `棚卸をはじめました。前回(${dateJP(prev.date)})の数と比べて表示します。` : '棚卸をはじめました。');
+}
+else if(act==='stkOpenT'){ stkSel = id; msg('',''); render(); window.scrollTo(0,0); }
+else if(act==='stkClose'){ stkSel = null; msg('',''); render(); window.scrollTo(0,0); }
+else if(act==='stkStep' || act==='stkOpen'){
+const t = S.stocks.find(x=>x.id===id); if(!t || t.locked) return;
+const it = stkItem(t, +b.dataset.mat), v = parseFloat(b.dataset.v)||0;
+if(act==='stkStep') it.sealed = Math.min(Math.max(it.sealed + v, 0), 9999);
+else it.open = v===0 ? 0 : Math.min(Math.round((it.open + v)*100)/100, 999);
+touch(); rerender();
+}
+else if(act==='stkLock'){
+const t = S.stocks.find(x=>x.id===id); if(!t) return;
+const noPrice = S.materials.filter(m=>!(m.price>0)).length;
+confirmBox('この棚卸を確定しますか?', `${dateJP(t.date)}の棚卸を、今の購入金額で確定します。\n確定後は、材料の金額を変えてもこの棚卸の金額は変わりません。${noPrice?`\n購入金額が入っていない材料が${noPrice}件あります(0円で計算されます)。`:''}`, '確定する', ()=>{
+t.items = S.materials.map(m=>{ const it = t.items.find(x=>x.matId===m.id) || {sealed:0, open:0}; return {matId:m.id, sealed:it.sealed, open:it.open, name:m.name, price:m.price, qty:m.qty, unit:m.unit}; });
+t.locked = true; touch(); rerender(); msg('ok','確定しました。CSVで保存しておくと、確定申告のときに便利です。');
+});
+}
+else if(act==='stkUnlock'){
+const t = S.stocks.find(x=>x.id===id); if(!t) return;
+confirmBox('確定を解除しますか?', '解除すると、金額は今の材料の購入金額で計算し直されます。\n削除した材料は一覧から外れます。', '解除する', ()=>{ t.locked = false; t.items = t.items.filter(it=>S.materials.some(m=>m.id===it.matId)); touch(); rerender(); });
+}
+else if(act==='stkDel'){
+const t = S.stocks.find(x=>x.id===id); if(!t) return;
+confirmBox('この棚卸を削除しますか?', `${dateJP(t.date)}の棚卸を削除します。\nこの操作は元に戻せません。`, '削除する', ()=>{ S.stocks = S.stocks.filter(x=>x.id!==id); stkSel = null; touch(); render(); window.scrollTo(0,0); });
+}
+else if(act==='stkCsv'){ const t = S.stocks.find(x=>x.id===id); if(t){ stkCsv(t); msg('ok','CSVを保存しました。'); } }
 else if(act==='hideGuide'){ S.hideGuide = true; touch(); rerender(); }
 else if(act==='showGuide'){ S.hideGuide = false; touch(); setTab('result'); }
 else if(act==='addRec'){
@@ -1123,7 +1317,7 @@ S.coupons = S.coupons.filter(x=>x.id!==id); touch(); rerender();
 else if(act==='export'){ exportData(); }
 else if(act==='import'){ $('#importFile').click(); }
 else if(act==='clearAll'){
-confirmBox('全データを消去しますか?','設定・材料・メニュー・回数券をすべて消去します。\nこの操作は元に戻せません。先にバックアップを保存してください。','消去する', ()=>{
+confirmBox('全データを消去しますか?','設定・材料・メニュー・回数券・棚卸をすべて消去します。\nこの操作は元に戻せません。先にバックアップを保存してください。','消去する', ()=>{
 S = defaultState(); touch(); saveNow(); tab='set'; render(); window.scrollTo(0,0); msg('ok','全データを消去しました。');
 });
 }
@@ -1137,7 +1331,7 @@ if(!file) return;
 let clean;
 try{ clean = sanitize(JSON.parse(await file.text())); }
 catch(err){ msg('bad','読み込みに失敗しました。このアプリで保存したJSONファイルを選んでください。'); window.scrollTo(0,0); return; }
-const apply = ()=>{ S = clean; touch(); saveNow(); tab='result'; render(); window.scrollTo(0,0); msg('ok',`読み込みました(材料${S.materials.length}件・メニュー${S.menus.length}件・回数券${S.coupons.length}件)。`); };
+const apply = ()=>{ S = clean; touch(); saveNow(); tab='result'; render(); window.scrollTo(0,0); msg('ok',`読み込みました(材料${S.materials.length}件・メニュー${S.menus.length}件・回数券${S.coupons.length}件・棚卸${S.stocks.length}件)。`); };
 if(hasData()) confirmBox('読み込んだ内容に置き換えますか?','いま入っているデータは、読み込むファイルの内容に置き換わります。\n必要なら先にバックアップを保存してください。','置き換える', apply);
 else apply();
 });
