@@ -654,7 +654,7 @@ return `<div><div class="t">${dateJP(t.date)}の棚卸 合計${t.locked?'(確定
 function stkSubHtml(t, r){
 const prev = stkPrev(t);
 let diff = '';
-if(prev){ const pr = stkRows(prev).find(x=>x.matId===r.matId); if(pr){ const d = stkCount(r)-stkCount(pr); diff = `前回 ${fmtB(stkCount(pr))} → ${d===0?'変化なし':(d>0?'+':'')+(d===0?'':fmtB(d))}`; } }
+if(prev){ const pr = stkRows(prev).find(x=>x.matId===r.matId); if(pr){ const d = stkCount(r)-stkCount(pr); diff = `前回 ${fmtB(stkCount(pr))} → 今回 ${fmtB(stkCount(r))}${d===0?'(変化なし)':`(${d>0?'+':'−'}${fmtB(Math.abs(d))})`}`; } }
 const c = stkCount(r);
 const low = c===0 ? '<span class="chip bad">在庫なし</span>' : (r.sealed===0 && r.open<=0.5 ? '<span class="chip mid">残りわずか</span>' : '');
 return `<span>${low} <span class="note">${diff}</span></span><b>${yen(c*(r.price||0))}</b>`;
